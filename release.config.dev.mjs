@@ -6,27 +6,27 @@ export default {
     'main',
     {
       name: 'feat/*',
-      prerelease: `dev-${process.env.GITHUB_SHA?.slice(0, 7) || 'local'}`,
+      prerelease: 'dev-${name.replace(/\\//g, "-")}',
       channel: 'dev',
     },
     {
       name: 'fix/*',
-      prerelease: `dev-${process.env.GITHUB_SHA?.slice(0, 7) || 'local'}`,
+      prerelease: 'dev-${name.replace(/\\//g, "-")}',
       channel: 'dev',
     },
     {
       name: 'refactor/*',
-      prerelease: `dev-${process.env.GITHUB_SHA?.slice(0, 7) || 'local'}`,
+      prerelease: 'dev-${name.replace(/\\//g, "-")}',
       channel: 'dev',
     },
     {
       name: 'perf/*',
-      prerelease: `dev-${process.env.GITHUB_SHA?.slice(0, 7) || 'local'}`,
+      prerelease: 'dev-${name.replace(/\\//g, "-")}',
       channel: 'dev',
     },
     {
       name: 'revert/*',
-      prerelease: `dev-${process.env.GITHUB_SHA?.slice(0, 7) || 'local'}`,
+      prerelease: 'dev-${name.replace(/\\//g, "-")}',
       channel: 'dev',
     },
   ],
