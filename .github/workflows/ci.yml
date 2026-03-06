@@ -38,7 +38,7 @@ jobs:
         run: bun run check
 
       - name: Type check
-        run: turbo check-types
+        run: bun run check-types
 
   build:
     name: Build

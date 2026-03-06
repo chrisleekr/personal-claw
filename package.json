@@ -16,6 +16,7 @@
     "lint:fix": "biome lint --fix .",
     "format": "biome format .",
     "format:fix": "biome format --fix .",
+    "check-types": "turbo check-types",
     "test": "turbo test",
     "db:generate": "turbo db:generate",
     "db:migrate": "turbo db:migrate",
