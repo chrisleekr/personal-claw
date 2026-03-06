@@ -1,6 +1,6 @@
 # PersonalClaw Architecture
 
-> Single source of truth for the PersonalClaw system design. Updated: February 2026.
+> Single source of truth for the PersonalClaw system design. Updated: March 2026.
 
 ## Table of Contents
 
@@ -13,12 +13,12 @@
 7. [Channel Integration](#channel-integration)
 8. [MCP Integration](#mcp-integration)
 9. [Security Model](#security-model)
-10. [Features & Status](#features--status)
-11. [Data Flows](#data-flows)
-12. [API Route Inventory](#api-route-inventory)
-13. [Environment Variables](#environment-variables)
-14. [Setup Guides](#setup-guides)
-15. [Docker Compose](#docker-compose)
+10. [Data Flows](#data-flows)
+11. [API Routes](#api-routes)
+12. [Environment Variables](#environment-variables)
+13. [Setup Guides](#setup-guides)
+14. [Docker Compose](#docker-compose)
+15. [CI/CD Pipeline](#cicd-pipeline)
 
 ---
 
@@ -39,156 +39,256 @@ Key design principles:
 
 ## Architecture Diagram
 
+### System Overview
+
 ```mermaid
 graph TB
-    subgraph clients ["Clients"]
-        SlackBot["Slack Bot<br/>Bolt.js Socket Mode"]
-        Dashboard["Next.js Dashboard<br/>shadcn/ui + Google OAuth"]
-        Webhooks["External Webhooks<br/>CI/CD, Monitoring Alerts"]
-        CLIClient["CLI Client<br/>Direct terminal access"]
+    subgraph users [Users]
+        SlackUser["Slack User"]:::user
+        AdminUser["Dashboard Admin"]:::user
+    end
+
+    subgraph external [External Services]
+        SlackAPI["Slack Platform API"]:::ext
+        LLM["LLM Providers<br/>Anthropic / Bedrock / OpenAI / Ollama"]:::ext
+        MCPServers["MCP Servers<br/>CircleCI / NewRelic / Sentry / Context7"]:::ext
     end
 
     subgraph monorepo ["Turborepo Monorepo - Bun"]
-        subgraph frontend ["apps/web - Next.js 15"]
-            AuthJS["Auth.js v5<br/>Google OAuth"]
-            Pages["Dashboard Pages<br/>Channel Selector / 8 Tabs"]
-            CostDash["Cost Dashboard<br/>Token usage per channel"]
-            WebAPI["Next.js API Routes<br/>REST proxy to Hono"]
-        end
-
-        subgraph backend ["apps/api - Hono on Bun"]
-            subgraph platformLayer ["Platform Layer"]
-                PlatformReg["Platform Registry<br/>Plugin-based platform support"]
-                SlackPlugin["Slack Plugin<br/>Bolt.js + Socket Mode"]
-                SlashCmds["Slash Command Router<br/>/pclaw help, status, model, skills"]
-            end
-
-            subgraph channelLayer ["Channel Layer"]
-                ChannelResolver["Channel Resolver<br/>Platform + externalId lookup"]
-                AdapterFactory["Adapter Factory<br/>Platform-specific adapters"]
-                ConfigCache["Config Cache<br/>Valkey-backed channel config"]
-                AutoRegister["Auto-Register<br/>New channel detection"]
-            end
-
-            subgraph middleware ["Middleware"]
-                AuthMW["Auth Middleware"]
-                RateLimiter["Rate Limiter<br/>Valkey-based throttling"]
-                RequestLogger["Request Logger<br/>LogTape structured logging"]
-            end
-
-            subgraph services ["Service Layer"]
-                ServiceContainer["DI Container<br/>Centralized service access"]
-                ChannelSvc["Channel, Memory, Skill,<br/>Approval, Schedule, Usage,<br/>Conversation, MCP, Identity<br/>Services"]
-            end
-
-            subgraph agentCore ["Agent Core"]
-                Orchestrator["Agent Orchestrator<br/>Pipeline coordination"]
-                AgentEngine["Agent Engine<br/>Vercel AI SDK + Provider Fallback"]
-                Pipeline["Agent Pipeline<br/>Step-by-step execution"]
-                ToolRegistry["Tool Registry<br/>Native + MCP tool merger"]
-                ToolProviders["Tool Providers<br/>Memory, CLI, Identity, Browser, Cron tools"]
-                SubAgents["Sub-Agent Spawner<br/>Parallel background tasks"]
-                PromptComposer["Prompt Composer<br/>inject-once / every-turn / minimal"]
-                CostTracker["Cost Tracker<br/>Token usage + spend logging"]
-            end
-
-            subgraph providerLayer ["Provider Registry"]
-                ProviderReg["Provider Registry<br/>Dynamic provider selection"]
-                AnthropicProv["Anthropic Provider"]
-                BedrockProv["Bedrock Provider"]
-                OpenAIProv["OpenAI Provider"]
-                OllamaProv["Ollama Provider"]
-            end
-
-            MCPManager["MCP Manager<br/>Global + Per-Channel Config"]
-            SkillsLoader["Skills Loader<br/>Hot-Reload Watcher"]
-            MemoryEngine["Memory Engine<br/>3-Tier: Valkey / Postgres / pgvector"]
-            Guardrails["Guardrails Engine<br/>Pre/Post + Prompt Injection Guard"]
-            Approvals["Approval Gateway<br/>Human-in-the-loop via platform buttons"]
-
-            subgraph sandboxMod ["Sandbox Module"]
-                SandboxMgr["Sandbox Manager<br/>Execution strategy selection"]
-                SandboxDirect["Direct Executor<br/>Subprocess isolation"]
-                SandboxSecurity["Security Scanner<br/>Command validation"]
-            end
-
-            BrowserAuto["Browser Automation<br/>Playwright: screenshots, scrape, forms"]
-            HooksEngine["Hooks / Lifecycle Events<br/>EventEmitter plugin system"]
-            CronRunner["Cron Runner<br/>node-cron / Heartbeat"]
-            SkillGen["Skill Auto-Generator<br/>Pattern tracking + draft generation"]
-            HotReload["Config Hot-Reload<br/>WebSocket Push"]
-            CLITools["CLI Tools<br/>Executor, registry, validator"]
-            ErrorHandler["Error Handler<br/>Typed AppError + cause chains"]
-            PIIMasker["PII Masker<br/>Output sanitization"]
-        end
-
-        subgraph packages ["packages/"]
-            SharedTypes["@personalclaw/shared<br/>Types, Schemas, Constants"]
-            DBPkg["@personalclaw/db<br/>Drizzle ORM + Migrations"]
-        end
+        Frontend["apps/web<br/>Next.js 15 + Auth.js v5 + shadcn/ui"]:::app
+        Backend["apps/api<br/>Hono on Bun"]:::app
+        SlackBolt["Slack Plugin<br/>Bolt.js Socket Mode"]:::platform
+        SharedPkg["@personalclaw/shared<br/>Types + Zod schemas"]:::pkg
+        DBPkg["@personalclaw/db<br/>Drizzle ORM schemas"]:::pkg
     end
 
     subgraph infra ["Infrastructure - Docker Compose"]
-        Postgres["PostgreSQL 16 + pgvector<br/>Channel configs, conversations,<br/>skills, schedules, long-term memory,<br/>usage logs, workflow patterns"]
-        Valkey["Valkey 8.1<br/>Working memory, thread state,<br/>config cache, rate limiting"]
+        Postgres["PostgreSQL 16 + pgvector"]:::db
+        Valkey["Valkey 8.1"]:::db
     end
 
-    subgraph llm ["LLM Providers - Fallback Chain"]
-        Anthropic["Anthropic API<br/>@ai-sdk/anthropic"]
-        Bedrock["AWS Bedrock<br/>@ai-sdk/amazon-bedrock"]
-        OpenAI["OpenAI API<br/>@ai-sdk/openai"]
-        Ollama["Ollama<br/>ollama-ai-provider-v2"]
+    AdminUser -->|HTTPS| Frontend
+    Frontend -->|"client-side REST"| Backend
+    Frontend -->|"Auth.js DrizzleAdapter"| Postgres
+
+    SlackUser -->|"message / mention"| SlackAPI
+    SlackAPI -->|"Socket Mode events"| SlackBolt
+    SlackBolt -->|"internal call"| Backend
+
+    Backend --> Postgres
+    Backend --> Valkey
+    Backend --> LLM
+    Backend --> MCPServers
+
+    Frontend -.->|imports| SharedPkg
+    Frontend -.->|imports| DBPkg
+    Backend -.->|imports| SharedPkg
+    Backend -.->|imports| DBPkg
+
+    classDef user fill:#1a5276,color:#ffffff
+    classDef app fill:#196f3d,color:#ffffff
+    classDef platform fill:#117864,color:#ffffff
+    classDef pkg fill:#6c3483,color:#ffffff
+    classDef db fill:#922b21,color:#ffffff
+    classDef ext fill:#7d6608,color:#ffffff
+```
+
+### Dashboard REST Flow
+
+```mermaid
+graph TB
+    DashboardReq["Dashboard Request<br/>Browser via api-client.ts"]:::input
+
+    subgraph middlewareLayer ["Hono Middleware Stack"]
+        Logger["Request Logger - LogTape"]:::mw
+        CORS["CORS"]:::mw
+        AuthMW["Auth Middleware<br/>Bearer token"]:::mw
     end
 
-    subgraph mcp ["MCP Servers"]
-        CircleCI["CircleCI MCP"]
-        NewRelic["NewRelic MCP"]
-        Sentry["Sentry MCP"]
-        Context7["Context7 MCP"]
-        CustomMCP["Custom MCP..."]
+    subgraph serviceLayer ["Service Layer - ServiceContainer"]
+        Services["Channel / Skill / Schedule / MCP<br/>Identity / Usage / Memory / Approval<br/>Conversation / Sandbox"]:::svc
     end
 
-    Dashboard --> AuthJS
-    Dashboard --> Pages
-    Dashboard --> CostDash
-    Pages --> WebAPI
-    WebAPI --> middleware
+    DB["PostgreSQL"]:::db
 
-    SlackBot --> PlatformReg
-    PlatformReg --> SlackPlugin
-    SlackPlugin --> SlashCmds
-    SlashCmds -->|"LLM bypass"| SlackPlugin
-    SlackPlugin --> channelLayer
+    DashboardReq --> Logger --> CORS --> AuthMW
+    AuthMW --> Services
+    Services --> DB
 
-    channelLayer --> services
-    services --> agentCore
-    middleware --> services
+    classDef input fill:#1a5276,color:#ffffff
+    classDef mw fill:#a04000,color:#ffffff
+    classDef svc fill:#6c3483,color:#ffffff
+    classDef db fill:#922b21,color:#ffffff
+```
 
-    Orchestrator --> AgentEngine
-    AgentEngine --> SubAgents
-    AgentEngine --> ToolRegistry
-    ToolRegistry --> MCPManager
+### Slack Message Flow
+
+```mermaid
+graph TB
+    SlackMsg["Incoming Slack Message"]:::input
+
+    subgraph platformLayer ["Platform Layer"]
+        PlatformReg["Platform Registry"]:::platform
+        SlackPlugin["Slack Plugin - Bolt.js"]:::platform
+        SlashCmds["Slash Command Router"]:::platform
+    end
+
+    subgraph preChecks ["Pre-Engine Checks - in Slack Handler"]
+        ChannelResolver["Channel Resolver<br/>+ Auto-Register"]:::channel
+        RateLimiter["Rate Limiter - Valkey"]:::channel
+        ReplyMode["Thread Reply Mode Filter"]:::channel
+        BudgetCheck["Budget Check"]:::channel
+        ThreadLock["Thread Lock - Mutex"]:::channel
+    end
+
+    subgraph agentCore ["Agent Core"]
+        Orchestrator["Orchestrator<br/>hooks + cost tracking"]:::core
+        Engine["Agent Engine<br/>10-stage pipeline"]:::core
+    end
+
+    SlackMsg --> PlatformReg --> SlackPlugin
+
+    SlackPlugin -->|"/pclaw commands"| SlashCmds
+    SlashCmds -->|"direct response<br/>no LLM"| SlackMsg
+
+    SlackPlugin -->|"regular message"| ChannelResolver
+    ChannelResolver --> RateLimiter --> ReplyMode --> BudgetCheck --> ThreadLock
+
+    ThreadLock --> Orchestrator --> Engine
+
+    classDef input fill:#1a5276,color:#ffffff
+    classDef platform fill:#117864,color:#ffffff
+    classDef channel fill:#196f3d,color:#ffffff
+    classDef core fill:#2c3e50,color:#ffffff
+```
+
+### Agent Pipeline
+
+```mermaid
+graph TB
+    Orchestrator["Orchestrator"]:::pipeline
+    Engine["Agent Engine - Vercel AI SDK"]:::pipeline
+
+    CostTracker["Cost Tracker"]:::support
+    HooksEngine["Hooks Engine"]:::support
+    HotReload["Config Hot-Reload"]:::support
+
+    Tools["Tool System"]:::tool
+    Providers["Provider Registry"]:::provider
+    Memory["Memory Engine"]:::mem
+    Safety["Safety + Approval"]:::safety
+    Sandbox["Sandbox Module"]:::sandbox
+    Prompt["Prompt Composer"]:::support
+
+    Orchestrator --> Engine
+    Orchestrator --> CostTracker
+    Orchestrator --> HooksEngine
+    HotReload -.->|"onConfigChange callback"| Engine
+
+    Engine --> Tools
+    Engine --> Providers
+    Engine --> Memory
+    Engine --> Safety
+    Engine --> Sandbox
+    Engine --> Prompt
+
+    classDef pipeline fill:#2c3e50,color:#ffffff
+    classDef tool fill:#117864,color:#ffffff
+    classDef provider fill:#7d6608,color:#ffffff
+    classDef mem fill:#1a5276,color:#ffffff
+    classDef safety fill:#922b21,color:#ffffff
+    classDef sandbox fill:#6c3483,color:#ffffff
+    classDef support fill:#4a5a6b,color:#ffffff
+```
+
+The Engine executes **10 pipeline stages** in sequence, each using specific subsystems:
+
+```mermaid
+graph LR
+    S1["preProcess<br/>Guardrails"]:::safety
+    S2["assembleContext<br/>Memory Engine"]:::mem
+    S3["loadTools<br/>Tool Registry + MCP"]:::tool
+    S4["createSandbox<br/>Sandbox Manager"]:::sandbox
+    S5["wrapApproval<br/>Approval Gateway"]:::safety
+    S6["composePrompt<br/>Prompt Composer"]:::support
+    S7["generate<br/>Provider Registry"]:::provider
+    S8["postProcess<br/>Guardrails"]:::safety
+    S9["persist<br/>Memory Engine"]:::mem
+    S10["trackSkillUsage<br/>DB"]:::support
+
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7 --> S8 --> S9 --> S10
+
+    classDef tool fill:#117864,color:#ffffff
+    classDef provider fill:#7d6608,color:#ffffff
+    classDef mem fill:#1a5276,color:#ffffff
+    classDef safety fill:#922b21,color:#ffffff
+    classDef sandbox fill:#6c3483,color:#ffffff
+    classDef support fill:#4a5a6b,color:#ffffff
+```
+
+### Engine Subsystems
+
+```mermaid
+graph TB
+    subgraph toolSystem ["Tool System"]
+        ToolRegistry["Tool Registry"]:::tool
+        ToolProviders["Memory / CLI / Identity<br/>Browser / Schedule / SubAgent"]:::tool
+        MCPProvider["MCP Tool Provider"]:::tool
+        MCPManager["MCP Manager<br/>client cache + tool policies"]:::tool
+    end
+
+    subgraph providerReg ["Provider Registry - Fallback Chain"]
+        ProvReg["Dynamic Selection"]:::provider
+        AnthropicP["Anthropic"]:::provider
+        BedrockP["Bedrock"]:::provider
+        OpenAIP["OpenAI"]:::provider
+        OllamaP["Ollama"]:::provider
+    end
+
+    subgraph memoryEng ["Memory Engine - 3 Tier"]
+        WorkingMem["Working - Valkey"]:::mem
+        ConvMem["Conversation - Postgres"]:::mem
+        LongTermMem["Long-Term - pgvector"]:::mem
+    end
+
+    subgraph safetyMod ["Safety and Approval"]
+        Guardrails["Guardrails<br/>pre + post processing"]:::safety
+        ApprovalGW["Approval Gateway"]:::safety
+    end
+
+    subgraph sandboxMod ["Sandbox Module"]
+        SandboxMgr["Sandbox Manager"]:::sandbox
+        DirectExec["Direct Executor"]:::sandbox
+        BubblewrapExec["Bubblewrap"]:::sandbox
+        SecurityScan["Security Scanner"]:::sandbox
+    end
+
+    PromptComposer["Prompt Composer"]:::support
+    SkillsLoader["Skills Loader"]:::support
+    SkillGen["Skill Auto-Generator"]:::support
+
     ToolRegistry --> ToolProviders
-    AgentEngine --> MemoryEngine
-    AgentEngine --> Guardrails
-    AgentEngine --> Approvals
-    AgentEngine --> sandboxMod
-    AgentEngine --> BrowserAuto
-    AgentEngine --> CostTracker
-    AgentEngine --> PromptComposer
-    AgentEngine --> CronRunner
-    AgentEngine --> HooksEngine
+    ToolRegistry --> MCPProvider
+    MCPProvider --> MCPManager
 
-    AgentEngine --> providerLayer
-    MCPManager --> mcp
+    ProvReg --> AnthropicP
+    ProvReg --> BedrockP
+    ProvReg --> OpenAIP
+    ProvReg --> OllamaP
+
+    SandboxMgr --> DirectExec
+    SandboxMgr --> BubblewrapExec
+    SandboxMgr --> SecurityScan
+
+    PromptComposer --> SkillsLoader
     SkillGen -.->|"auto-draft"| SkillsLoader
 
-    backend --> Postgres
-    backend --> Valkey
-    frontend --> Postgres
-
-    HotReload -.->|WebSocket| AgentEngine
-    WebAPI -.->|config change| HotReload
+    classDef tool fill:#117864,color:#ffffff
+    classDef provider fill:#7d6608,color:#ffffff
+    classDef mem fill:#1a5276,color:#ffffff
+    classDef safety fill:#922b21,color:#ffffff
+    classDef sandbox fill:#6c3483,color:#ffffff
+    classDef support fill:#4a5a6b,color:#ffffff
 ```
 
 ---
@@ -220,186 +320,139 @@ graph TB
 
 ## Database Schema
 
-### Required Extensions
+> Full schema definitions: `packages/db/src/schema/*.ts`. Migrations: `packages/db/src/migrations/`.
 
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-```
+Required extension: `pgvector` (for semantic memory search).
 
 ### Tables
 
-```sql
--- Platform-agnostic channel configuration
-channels (
-  id UUID PK,
-  platform TEXT NOT NULL DEFAULT 'slack',  -- 'slack' | 'discord' | 'teams' | 'cli'
-  external_id TEXT NOT NULL,               -- Platform-specific channel ID
-  external_name TEXT,                      -- Human-readable channel name
-  identity_prompt TEXT,                    -- IDENTITY.md content
-  team_prompt TEXT,                        -- TEAM.md (per-channel context)
-  model TEXT DEFAULT 'claude-sonnet-4-20250514',
-  provider TEXT DEFAULT 'anthropic',       -- 'anthropic' | 'bedrock' | 'openai' | 'ollama'
-  max_iterations INT DEFAULT 10,
-  guardrails_config JSONB,                 -- guardrails rules
-  sandbox_enabled BOOLEAN DEFAULT true,
-  sandbox_config JSONB,                    -- allowed commands, denied patterns, limits
-  heartbeat_enabled BOOLEAN DEFAULT false,
-  heartbeat_prompt TEXT,
-  heartbeat_cron TEXT DEFAULT '*/30 * * * *',
-  memory_config JSONB DEFAULT '{"max_memories": 200, "inject_top_n": 10}',
-  prompt_inject_mode TEXT DEFAULT 'every-turn',  -- 'every-turn' | 'once' | 'minimal'
-  provider_fallback JSONB DEFAULT '[{"provider": "anthropic", "model": "claude-sonnet-4-20250514"}]',
-  browser_enabled BOOLEAN DEFAULT false,
-  cost_budget_daily_usd DECIMAL(10,2),     -- NULL = unlimited
-  thread_reply_mode TEXT DEFAULT 'all',    -- 'all' | 'mentions_only' | 'original_poster'
-  autonomy_level TEXT DEFAULT 'balanced',  -- 'cautious' | 'balanced' | 'autonomous'
-  created_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ,
-  UNIQUE(platform, external_id)
-)
+| Table | Purpose | Key Columns |
+| ----- | ------- | ----------- |
+| `channels` | Per-channel agent config | `platform`, `external_id`, `model`, `provider`, `memory_config` (JSONB, default `{"maxMemories": 200, "injectTopN": 10}`), `provider_fallback` (JSONB), `guardrails_config`, `sandbox_config`, `autonomy_level`, `thread_reply_mode`. Unique on `(platform, external_id)` |
+| `skills` | Markdown skill definitions per channel | `channel_id` FK, `name`, `content`, `allowed_tools`, `enabled` |
+| `skill_usages` | Skill effectiveness tracking | `skill_id` FK, `channel_id` FK, `external_user_id`, `was_helpful` |
+| `mcp_configs` | MCP server configs (global + per-channel) | `channel_id` FK (NULL = global), `server_name`, `transport_type` (sse/http/stdio), `server_url`, `command`, `args`, `env` |
+| `tool_policies` | Allow/deny lists per MCP server | `channel_id` FK (nullable), `mcp_config_id` FK, `allow_list`, `deny_list` |
+| `schedules` | Cron-based scheduled agent jobs | `channel_id` FK, `cron_expression`, `prompt`, `notify_users` |
+| `usage_logs` | Token usage and cost per LLM request | `channel_id` FK, `external_user_id`, `provider`, `model`, `prompt_tokens`, `completion_tokens`, `estimated_cost_usd` |
+| `approval_policies` | Per-tool approval rules per channel | `channel_id` FK, `tool_name`, `policy` (ask/allowlist/deny/auto), `allowed_users`. Unique on `(channel_id, tool_name)` |
+| `workflow_patterns` | Repeated tool sequences for auto-skill generation | `channel_id` FK, `pattern_hash`, `tool_sequence`, `occurrence_count`, `generated_skill_id` FK |
+| `conversations` | Tier 2 memory: thread history + compaction | `channel_id` FK, `external_thread_id`, `messages` (JSONB), `summary`, `is_compacted`, `token_count` |
+| `channel_memories` | Tier 3 memory: curated facts per channel | `channel_id` FK, `content`, `category`, `embedding` (vector(1024) via raw SQL), `search_vector` (tsvector, generated). HNSW index on embedding, GIN index on search_vector |
 
--- Skills per channel
-skills (
-  id UUID PK,
-  channel_id UUID FK -> channels.id ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  content TEXT NOT NULL,         -- Markdown skill content
-  allowed_tools TEXT[] DEFAULT '{}',
-  enabled BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ
-)
+Auth.js tables (`users`, `accounts`) also exist via the Drizzle adapter but are managed by Auth.js, not application code.
 
--- Skill effectiveness tracking
-skill_usages (
-  id UUID PK,
-  skill_id UUID FK -> skills.id ON DELETE CASCADE,
-  channel_id UUID FK -> channels.id ON DELETE CASCADE,
-  external_user_id TEXT NOT NULL,   -- Who triggered the skill
-  was_helpful BOOLEAN,              -- User feedback (nullable until rated)
-  created_at TIMESTAMPTZ,
-  INDEX(skill_id),
-  INDEX(channel_id)
-)
+### Entity Relationship Diagram
 
--- MCP configurations (global + per-channel, SSE + HTTP + stdio transports)
-mcp_configs (
-  id UUID PK,
-  channel_id UUID NULLABLE FK -> channels.id ON DELETE CASCADE,  -- NULL = global config
-  server_name TEXT NOT NULL,
-  transport_type TEXT DEFAULT 'sse',  -- 'sse' | 'http' | 'stdio'
-  server_url TEXT,                    -- For SSE/HTTP transports (nullable for stdio)
-  headers JSONB,                      -- HTTP headers for SSE/HTTP
-  command TEXT,                       -- For stdio transport: binary path
-  args JSONB,                         -- For stdio transport: command arguments
-  env JSONB,                          -- For stdio transport: environment variables
-  cwd TEXT,                           -- For stdio transport: working directory
-  enabled BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ,
-  UNIQUE(channel_id, server_name)
-)
+```mermaid
+erDiagram
+    channels ||--o{ skills : "has"
+    channels ||--o{ skill_usages : "tracks"
+    channels ||--o{ mcp_configs : "configures"
+    channels ||--o{ tool_policies : "restricts"
+    channels ||--o{ schedules : "runs"
+    channels ||--o{ usage_logs : "logs"
+    channels ||--o{ approval_policies : "governs"
+    channels ||--o{ workflow_patterns : "detects"
+    channels ||--o{ conversations : "stores"
+    channels ||--o{ channel_memories : "remembers"
 
--- Tool policies per channel
-tool_policies (
-  id UUID PK,
-  channel_id UUID NULLABLE FK -> channels.id ON DELETE CASCADE,
-  mcp_config_id UUID FK -> mcp_configs.id ON DELETE CASCADE,
-  allow_list TEXT[] DEFAULT '{}',
-  deny_list TEXT[] DEFAULT '{}',
-  created_at TIMESTAMPTZ
-)
+    skills ||--o{ skill_usages : "measured by"
+    skills ||--o{ workflow_patterns : "generated from"
+    mcp_configs ||--o{ tool_policies : "scoped by"
 
--- Scheduled jobs
-schedules (
-  id UUID PK,
-  channel_id UUID FK -> channels.id ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  cron_expression TEXT NOT NULL,
-  prompt TEXT NOT NULL,            -- What to ask the agent
-  enabled BOOLEAN DEFAULT true,
-  notify_users TEXT[] DEFAULT '{}',  -- User IDs to notify on completion
-  last_run_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ
-)
+    users ||--o{ accounts : "authenticates via"
 
--- Token usage and cost per LLM request
-usage_logs (
-  id UUID PK,
-  channel_id UUID FK -> channels.id ON DELETE CASCADE,
-  external_user_id TEXT NOT NULL,      -- Platform-agnostic user ID
-  external_thread_id TEXT,             -- Platform-agnostic thread ID
-  provider TEXT NOT NULL,              -- 'anthropic' | 'bedrock' | 'openai' | 'ollama'
-  model TEXT NOT NULL,
-  prompt_tokens INT NOT NULL,
-  completion_tokens INT NOT NULL,
-  total_tokens INT NOT NULL,
-  estimated_cost_usd DECIMAL(10,6),    -- Calculated from token counts + model pricing
-  duration_ms INT,                     -- Request latency
-  created_at TIMESTAMPTZ,
-  INDEX(channel_id, created_at),
-  INDEX(external_user_id, created_at)
-)
+    channels {
+        uuid id PK
+        text platform
+        text external_id
+        text model
+        text provider
+        jsonb memory_config
+        jsonb provider_fallback
+        jsonb guardrails_config
+        jsonb sandbox_config
+        text autonomy_level
+        text thread_reply_mode
+    }
 
--- Per-channel tool approval policies
-approval_policies (
-  id UUID PK,
-  channel_id UUID FK -> channels.id ON DELETE CASCADE,
-  tool_name TEXT NOT NULL,             -- Tool that requires approval
-  policy TEXT DEFAULT 'ask',           -- 'ask' | 'allowlist' | 'deny' | 'auto'
-  allowed_users TEXT[] DEFAULT '{}',   -- Platform user IDs who can auto-approve
-  created_at TIMESTAMPTZ,
-  UNIQUE(channel_id, tool_name)
-)
+    skills {
+        uuid id PK
+        uuid channel_id FK
+        text name
+        text content
+        jsonb allowed_tools
+        boolean enabled
+    }
 
--- Track repeated workflow patterns for auto-skill generation
-workflow_patterns (
-  id UUID PK,
-  channel_id UUID FK -> channels.id ON DELETE CASCADE,
-  pattern_hash TEXT NOT NULL,          -- Hash of tool call sequence
-  tool_sequence TEXT[] NOT NULL,       -- Ordered list of tools called
-  description TEXT,                    -- LLM-generated description of the pattern
-  occurrence_count INT DEFAULT 1,
-  success_count INT DEFAULT 0,
-  last_seen_at TIMESTAMPTZ,
-  generated_skill_id UUID NULLABLE FK -> skills.id,  -- NULL until skill is generated
-  created_at TIMESTAMPTZ,
-  UNIQUE(channel_id, pattern_hash)
-)
+    mcp_configs {
+        uuid id PK
+        uuid channel_id FK "nullable - NULL means global"
+        text server_name
+        text transport_type "sse / http / stdio"
+        text server_url
+        text command
+    }
 
--- TIER 2: Conversation memory (per thread)
--- Tier 1 (working memory) lives in Valkey, keyed by channel_id:thread_id
-conversations (
-  id UUID PK,
-  channel_id UUID FK -> channels.id ON DELETE CASCADE,
-  external_thread_id TEXT NOT NULL,    -- Platform-agnostic thread identifier
-  messages JSONB NOT NULL DEFAULT '[]',
-  summary TEXT,                        -- Compacted summary (replaces messages when compacted)
-  is_compacted BOOLEAN DEFAULT false,
-  token_count INT,                     -- Estimated token count for compaction trigger
-  created_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ,
-  INDEX(channel_id, external_thread_id)
-)
+    channel_memories {
+        uuid id PK
+        uuid channel_id FK
+        text content
+        text category
+        vector embedding "1024-dim via pgvector"
+        tsvector search_vector "generated column"
+    }
 
--- TIER 3: Long-term memory (per channel)
--- Durable facts, preferences, decisions the agent extracts from conversations.
-channel_memories (
-  id UUID PK,
-  channel_id UUID FK -> channels.id ON DELETE CASCADE,
-  content TEXT NOT NULL,               -- The memory: "Team prefers blue-green deploys"
-  category TEXT NOT NULL DEFAULT 'fact',  -- 'fact' | 'preference' | 'decision' | 'person' | 'project' | 'procedure'
-  source_thread_id TEXT,               -- Thread this memory was extracted from
-  -- pgvector + tsvector columns managed via raw SQL migration:
-  -- embedding vector(1024)            -- pgvector: for semantic similarity search
-  -- search_vector tsvector            -- Postgres FTS: for keyword search
-  --   GENERATED ALWAYS AS (to_tsvector('english', content)) STORED
-  recall_count INT DEFAULT 0,          -- How often this memory has been retrieved
-  last_recalled_at TIMESTAMPTZ,        -- For simple decay: stale if not recalled in 90 days
-  created_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ,
-  INDEX(channel_id),
-  INDEX USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100),
-  INDEX USING gin (search_vector)
-)
+    conversations {
+        uuid id PK
+        uuid channel_id FK
+        text external_thread_id
+        jsonb messages
+        text summary
+        boolean is_compacted
+        integer token_count
+    }
+
+    usage_logs {
+        uuid id PK
+        uuid channel_id FK
+        text external_user_id
+        text provider
+        text model
+        integer prompt_tokens
+        integer completion_tokens
+        numeric estimated_cost_usd
+    }
+
+    approval_policies {
+        uuid id PK
+        uuid channel_id FK
+        text tool_name
+        text policy "ask / allowlist / deny / auto"
+        jsonb allowed_users
+    }
+
+    tool_policies {
+        uuid id PK
+        uuid channel_id FK "nullable"
+        uuid mcp_config_id FK
+        jsonb allow_list
+        jsonb deny_list
+    }
+
+    users {
+        uuid id PK
+        text email
+        text name
+    }
+
+    accounts {
+        uuid id PK
+        uuid userId FK
+        text provider
+        text providerAccountId
+    }
 ```
 
 ### Key Design Decisions
@@ -409,6 +462,7 @@ channel_memories (
 - pgvector for semantic memory search (1024-dim embeddings)
 - tsvector for keyword memory search (hybrid with pgvector)
 - Drizzle ORM for type-safe queries and migrations
+- `embedding` and `search_vector` columns on `channel_memories` are managed via raw SQL migrations (not in Drizzle schema) because Drizzle lacks native pgvector/tsvector column types
 
 ---
 
@@ -423,6 +477,33 @@ Adapted from OpenClaw's 3-layer file-based memory, translated to Postgres + pgve
 | 1 - Working      | Valkey              | Current thread context      | 24h                   |
 | 2 - Conversation | Postgres            | Thread history + compaction | Permanent             |
 | 3 - Long-Term    | Postgres + pgvector | Curated facts per channel   | Permanent (90d decay) |
+
+#### Read Path: Context Assembly
+
+```mermaid
+graph LR
+    Msg["New Message"]:::input
+
+    subgraph assembleContext ["assembleContext - MemoryEngine"]
+        T1Check{"Tier 1<br/>Valkey cached?"}:::mem
+        T1Hit["Use working memory<br/>messages from cache"]:::mem
+        T2Fallback["Tier 2 fallback<br/>getHistory from Postgres"]:::mem
+        T3Search["Tier 3 hybrid search<br/>pgvector + tsvector"]:::mem
+    end
+
+    Prompt["Injected into<br/>system prompt"]:::support
+
+    Msg --> T1Check
+    T1Check -->|"cache hit"| T1Hit --> T3Search
+    T1Check -->|"cache miss"| T2Fallback --> T3Search
+    T3Search --> Prompt
+
+    classDef input fill:#1a5276,color:#ffffff
+    classDef mem fill:#1a5276,color:#ffffff
+    classDef support fill:#4a5a6b,color:#ffffff
+```
+
+#### Storage Tiers
 
 ```mermaid
 graph TB
@@ -465,7 +546,7 @@ graph TB
         List["memory_list<br/>List all memories for channel"]
     end
 
-    tier1 -->|"thread gets long"| flush
+    tier2 -->|"token_count exceeds threshold"| flush
     flush -->|"durable facts"| tier3
     flush -->|"then compact"| tier2
     tier3 --> hybridSearch
@@ -505,7 +586,37 @@ graph TB
 
 ### Provider Fallback
 
-Ordered provider list per channel. On rate-limit (429) or timeout, automatically tries next provider.
+Ordered provider list per channel. On rate-limit (429), auth error (401/403), or timeout, automatically tries the next provider in the fallback chain.
+
+```mermaid
+graph TB
+    Start["generateStage begins"]:::pipeline
+    LoadChain["Load primary provider<br/>+ fallback chain from channel config"]:::pipeline
+
+    TryProvider{"Try provider N"}:::provider
+    CallLLM["generateText via Vercel AI SDK"]:::provider
+    Success["Return response + usage stats"]:::pipeline
+
+    Retryable{"Retryable error?<br/>429 / 401 / 403 / timeout"}:::safety
+    HasNext{"More providers<br/>in chain?"}:::safety
+    NextProvider["Log warning, advance<br/>to next fallback"]:::provider
+    ThrowError["Throw error<br/>to caller"]:::safety
+
+    Start --> LoadChain --> TryProvider
+    TryProvider --> CallLLM
+    CallLLM -->|"success"| Success
+    CallLLM -->|"error"| Retryable
+
+    Retryable -->|"yes"| HasNext
+    Retryable -->|"no"| ThrowError
+
+    HasNext -->|"yes"| NextProvider --> TryProvider
+    HasNext -->|"no"| ThrowError
+
+    classDef pipeline fill:#2c3e50,color:#ffffff
+    classDef provider fill:#7d6608,color:#ffffff
+    classDef safety fill:#922b21,color:#ffffff
+```
 
 ### Prompt Composition Modes
 
@@ -587,222 +698,148 @@ Two-layer system: plan confirmation (clarification + intent approval) and per-to
 
 ---
 
-## Features & Status
-
-### MVP Core
-
-- **Monorepo scaffold**: Turborepo + Bun, `apps/web`, `apps/api`, `packages/shared`, `packages/db`
-- **Docker Compose**: PostgreSQL 16 (with pgvector extension), Valkey 8.1 (api/web run natively via Bun)
-- **Backend (Hono)**: Basic routes, health check, Drizzle connection, LogTape structured logging
-- **Platform abstraction**: `ChannelAdapter` interface, platform registry, Slack plugin (Bolt.js Socket Mode)
-- **User attribution**: Store `external_user_id` on every conversation turn and usage log
-- **Agent Engine**: Vercel AI SDK `generateText` with configurable provider via provider registry
-- **Cost tracking**: Log `promptTokens` + `completionTokens` from AI SDK response to `usage_logs` table per request
-- **MCP Manager**: `createMCPClient()` for global MCP servers (SSE, HTTP, and stdio transports)
-- **Memory Tier 1+2**: Valkey working memory for active threads + Postgres conversation history per thread
-- **Frontend (Next.js)**: Auth.js Google OAuth login, basic channel list page
-- **Error handling**: Typed `AppError` with cause chains, global error handler middleware
-
-### Dashboard + Multi-Channel + Long-Term Memory
-
-- **Channel management CRUD**: Create/edit/delete channel configs via dashboard
-- **Dashboard UI**: Left sidebar channel selector, right side tabs (Identity, Skills, Memory, Schedules, Conversations, Settings, Approvals, MCP)
-- **Global pages**: Usage dashboard (cross-channel cost view), Global MCP config page
-- **Channel resolver**: Platform + `externalId` lookup, auto-register new channels on first message
-- **Config cache**: Valkey-backed channel config cache for fast lookups
-- **Slash commands**: `/pclaw help`, `/pclaw status`, `/pclaw model <name>`, `/pclaw skills`, `/pclaw memory`, `/pclaw compact`, `/pclaw config`. Intercept in Bolt.js before LLM -- zero token cost
-- **Human-in-the-loop approvals**: Approval gateway checks tool policies. Post platform interactive buttons (Approve/Deny). Block execution until user responds. Approval policies configurable per channel in dashboard. Supports `ask`, `allowlist`, `deny`, and `auto` policies
-- **Cost dashboard**: Per-channel token usage charts, daily/weekly spend, budget alerts when `cost_budget_daily_usd` threshold is approached
-- **Prompt injection protection**: Validate all memory/tool operations are scoped to requesting `channel_id`. Deny cross-channel memory access. Sanitize user input for injection patterns
-- **Memory Tier 3**: Long-term memory with pgvector embeddings + tsvector keyword search. Agent tools: `memory_save`, `memory_search`, `memory_list`
-- **Memory flush + compaction**: Silent agent turn to extract durable facts before compacting long threads
-- **Memory tab in dashboard**: View, search, edit, delete long-term memories per channel
-- **Per-channel MCP toggles**: Enable/disable MCP servers per channel from dashboard
-- **Global MCP config**: MCP configs with `channel_id = NULL` apply to all channels
-- **Skills CRUD**: Create/edit/delete skills per channel via dashboard
-- **Hot-reload**: WebSocket connection from backend to push config changes instantly when dashboard updates are saved
-- **Thread lock**: Mutex per `thread_id` to prevent race conditions on concurrent messages
-- **Service layer**: DI container with 9 service modules (channel, memory, skill, approval, schedule, usage, conversation, MCP, identity)
-
-### Production Hardening
-
-- **Guardrails engine**: Pre-processing (input validation, content filtering, intent classification) and post-processing (output validation, PII redaction, response format enforcement)
-- **Sandbox module**: Full sandbox with manager, direct subprocess executor, bubblewrap container isolation, security scanner, and configurable `SandboxConfig` per channel (allowed commands, denied patterns, timeouts, workspace size limits, network access)
-- **Provider fallback chain**: Ordered provider list per channel (`provider_fallback` JSONB). Provider registry with 4 providers (Anthropic, Bedrock, OpenAI, Ollama). On rate-limit (429) or timeout, automatically try next provider
-- **Hooks / lifecycle events**: EventEmitter-based system: `message:received`, `message:sending` (can modify/cancel), `message:sent`, `tool:called`, `memory:saved`, `identity:updated`, `budget:warning`, `budget:exceeded`, `reaction:received`. Hook scripts auto-discovered from `hooks/builtin/`. Built-in hooks for cost logging and audit trail
-- **Sub-agent delegation**: `spawn_subtask` agent tool. Spawns parallel `generateText` calls with isolated context, filtered tools, configurable model, and timeout. Results stored in Valkey keyed by task ID. Main agent retrieves via `get_subtask_result`. Enables parallel investigation workflows
-- **Prompt composition modes**: Configurable `prompt_inject_mode` per channel: `every-turn` (inject identity + team + skills every turn), `once` (first message only, ~90% token savings), `minimal` (only identity every turn, ~70% savings)
-- **Image processing**: Download platform file uploads, pass image buffers to vision models via Vercel AI SDK multimodal `content` array. Support screenshots, error screenshots, architecture diagrams
-- **Heartbeat system**: Periodic agent wake via `node-cron` to proactively check monitoring tools (NewRelic, Sentry, CircleCI) and report only actionable issues
-- **Memory decay**: Cleanup memories not recalled in 90+ days via `memory/decay.ts`. Configurable per channel via `memory_config`
-- **Cron scheduler**: User-defined scheduled jobs per channel (e.g., "morning briefing at 9am") with `notify_users` support
-- **Tool policies**: Allow/deny lists per channel to restrict which MCP tools are available
-- **JSONL transcript logging**: Structured conversation logs with user attribution for audit and replay
-- **Rate limiting**: Valkey-based rate limiter middleware
-- **PII masking**: Output sanitization utility for post-processing
-- **CLI tools**: CLI executor, command registry, validator for sandboxed command execution
-- **Middleware layer**: Auth, rate-limiter, and request-logger middleware
-- **Thread reply modes**: Configurable `thread_reply_mode` per channel: `all`, `mentions_only`, `original_poster`
-- **Autonomy levels**: Configurable `autonomy_level` per channel: `cautious`, `balanced`, `autonomous`
-
-### Advanced Agent Capabilities
-
-- **Browser automation**: Playwright integration running headless Chromium in Docker. Agent tools: `browser_screenshot` (capture URL as image, post to channel), `browser_scrape` (extract structured data from web pages), `browser_fill` (fill forms in internal tools). Browser pool manager with concurrent page limits and timeout
-- **Self-improving skills**: Track tool call sequences in `workflow_patterns` table. Hash the sequence for dedup. When `occurrence_count >= 5` and `success_count / occurrence_count >= 0.7`, trigger skill auto-generation: run a `generateText` call that drafts a SKILL.md combining those tool calls into a single skill. Save as draft skill (`enabled: false`) for admin review in dashboard
-- **Skill effectiveness tracking**: `skill_usages` table logs which skills are used, with `was_helpful` feedback. Stats API surfaces usage counts. Low-performing skills surfaced in dashboard for review or deletion
-- **Multi-platform types**: `ChannelPlatform` type supports `slack`, `discord`, `teams`, `cli`. Platform registry allows plugging in new adapters. Currently only Slack adapter is implemented
-
-### Status
-
-| Category           | Feature                         | Status      |
-| ------------------ | ------------------------------- | ----------- |
-| **Infrastructure** | Backend framework (Hono)        | Done        |
-| **Infrastructure** | ORM (Drizzle)                   | Done        |
-| **Infrastructure** | Docker Compose + pgvector       | Done        |
-| **Infrastructure** | Biome linter + formatter        | Done        |
-| **Infrastructure** | LogTape structured logging      | Done        |
-| **Infrastructure** | Error handling module           | Done        |
-| **Infrastructure** | Service layer / DI container    | Done        |
-| **Infrastructure** | Platform abstraction            | Done        |
-| **Core Agent**     | Thread lock / Lane Queue        | Done        |
-| **Core Agent**     | Heartbeat system                | Done        |
-| **Core Agent**     | 3-tier memory system            | Done        |
-| **Core Agent**     | Memory decay cleanup            | Done        |
-| **Core Agent**     | Prompt composition modes        | Done        |
-| **Core Agent**     | Provider fallback chain         | Done        |
-| **Core Agent**     | Provider registry (4 providers) | Done        |
-| **Core Agent**     | Sub-agent delegation            | Done        |
-| **Core Agent**     | Agent orchestrator + pipeline   | Done        |
-| **Platform UX**    | Slash commands                  | Done        |
-| **Platform UX**    | Human-in-the-loop approvals     | Done        |
-| **Platform UX**    | Image processing                | Done        |
-| **Platform UX**    | Thread reply modes              | Done        |
-| **Platform UX**    | Reaction-based feedback         | Done        |
-| **Security**       | Guardrails pre/post             | Done        |
-| **Security**       | Prompt injection protection     | Done        |
-| **Security**       | Tool policies (allow/deny)      | Done        |
-| **Security**       | Sandbox module (full)           | Done        |
-| **Security**       | PII masking                     | Done        |
-| **Observability**  | Cost tracking + budget alerts   | Done        |
-| **Observability**  | User attribution                | Done        |
-| **Observability**  | JSONL transcript logging        | Done        |
-| **Extensibility**  | Hooks / lifecycle events        | Done        |
-| **Extensibility**  | Self-improving skills           | Done        |
-| **Extensibility**  | Skill effectiveness tracking    | Done        |
-| **Extensibility**  | Browser automation (Playwright) | Done        |
-| **Extensibility**  | CLI tools                       | Done        |
-| **Config**         | Hot-reload via WebSocket        | Done        |
-| **Config**         | Rate limiting                   | Done        |
-| **Config**         | Autonomy levels                 | Done        |
-| **Multi-platform** | Platform type system            | Partial     |
-| **Multi-platform** | Slack adapter                   | Done        |
-| **Multi-platform** | Discord / Teams / CLI adapters  | Not started |
-
----
-
 ## Data Flows
 
-### Message Processing
+### Slack Handler Flow
+
+Shows the pre-engine checks in `handleMessage()` before the agent runs.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant User as Platform User
-    participant Platform as Platform API<br/>Slack / Discord / Teams / CLI
-    participant Plugin as Platform Plugin<br/>e.g. Slack Bolt.js
-    participant Slash as Slash Command Router
-    participant Lock as Thread Lock
-    participant Resolve as Channel Resolver<br/>+ Auto-Register
-    participant Svc as Service Container
-    participant Mem as Memory Engine
-    participant Guard as Guardrails Pre
-    participant Agent as Agent Engine<br/>Vercel AI SDK
-    participant Tools as Tool Registry<br/>Native + MCP
-    participant Approve as Approval Gateway
-    participant Sand as Sandbox Module
-    participant Hooks as Hook Events
-    participant Cost as Cost Tracker
-    participant GuardPost as Guardrails Post
-    participant DB as Postgres + Valkey
+    participant User as Slack User
+    participant Slack as Slack Platform
+    participant Plugin as Slack Plugin<br/>Bolt.js
+    participant Resolve as Channel Resolver
+    participant Rate as Rate Limiter<br/>Valkey
+    participant Reply as Reply Mode Filter
+    participant Budget as Budget Check
+    participant Lock as Thread Lock<br/>Mutex
+    participant Orch as Orchestrator
 
-    User->>Platform: @PersonalClaw deploy staging
-    Platform->>Plugin: Platform event<br/>externalId + threadId + userId
+    User->>Slack: @PersonalClaw deploy staging
+    Slack->>Plugin: Socket Mode event<br/>channelId + threadId + userId
 
     alt Message starts with /pclaw
-        Plugin->>Slash: Route to slash command handler
-        Slash->>Slash: Execute command without LLM
-        Slash->>Platform: Direct response
+        Plugin->>Plugin: Route to slash command handler
+        Plugin->>Slack: Direct response, no LLM
     else Regular agent message
-        Plugin->>Hooks: Emit message:received
-        Plugin->>Lock: Acquire thread mutex
-        Lock-->>Plugin: Lock acquired
+        Plugin->>Resolve: resolve platform + externalId
+        Resolve-->>Plugin: channelId
 
-        Plugin->>Resolve: Resolve channel<br/>platform + externalId
-        Resolve->>DB: Lookup or auto-register channel
-        DB-->>Resolve: ChannelConfig
-        Resolve-->>Plugin: channelId + config
+        Plugin->>Rate: checkRateLimit channelId + userId
+        alt Rate limited
+            Rate-->>Plugin: denied
+            Plugin->>Slack: Rate limit message
+        else Allowed
+            Rate-->>Plugin: allowed
 
-        Plugin->>Svc: Get services for channel
-        Svc->>Mem: Load context for thread
-        Mem->>DB: Tier 1: Get working memory from Valkey
-        Mem->>DB: Tier 2: Get conversation history from Postgres
-        Mem->>DB: Tier 3: Hybrid search for relevant long-term memories
-        DB-->>Mem: Thread context + top-N memories
-        Mem-->>Svc: Assembled context
+            Plugin->>Reply: shouldSkipByReplyMode
+            alt Filtered out
+                Reply-->>Plugin: skip
+            else Pass
+                Reply-->>Plugin: proceed
 
-        Svc->>Guard: Pre-process input<br/>+ prompt injection check<br/>+ channel_id scope validation
-        Guard-->>Svc: Validated input
-
-        Svc->>Agent: generateText with maxSteps<br/>system prompt via prompt composer
-
-        loop Agent Loop - maxSteps
-            Agent->>Tools: Tool call via tool registry
-
-            opt Tool requires approval
-                Tools->>Approve: Check approval policy
-                Approve->>Platform: Post Approve/Deny buttons
-                Platform->>User: Interactive message
-                User->>Platform: Clicks Approve
-                Platform->>Approve: Action callback
-                Approve-->>Tools: Approved - proceed
-            end
-
-            Tools->>Sand: Execute in sandbox
-            Sand-->>Tools: Tool result
-            Tools-->>Agent: Feed result back
-            Hooks->>Hooks: Emit tool:called
-
-            opt Agent calls memory_save
-                Agent->>Mem: memory_save: durable fact
-                Mem->>DB: Insert into channel_memories
-                Hooks->>Hooks: Emit memory:saved
+                Plugin->>Budget: orchestrator.checkBudget
+                alt Budget exceeded
+                    Budget-->>Plugin: exceeded
+                    Plugin->>Slack: Budget exceeded message
+                else Within budget
+                    Budget-->>Plugin: ok
+                    Plugin->>Lock: withThreadLock
+                    Lock->>Orch: orchestrator.process
+                    Note over Orch: See Engine Pipeline below
+                    Orch-->>Lock: result
+                    Lock-->>Plugin: release mutex
+                end
             end
         end
-
-        Agent-->>Svc: Final response + usage stats
-
-        Svc->>Cost: Log tokens + cost + external_user_id
-        Cost->>DB: Insert usage_logs
-
-        Hooks->>Hooks: Emit message:sending
-
-        Svc->>GuardPost: Post-process output
-        GuardPost-->>Svc: Sanitized response
-
-        Svc->>Mem: Persist conversation
-        Mem->>DB: Tier 1+2: Update Valkey + Postgres
-
-        opt Token count exceeds threshold
-            Mem->>Agent: Memory flush + compact
-            Mem->>DB: Update conversation with summary
-        end
-
-        Svc->>Platform: Send message in thread
-        Hooks->>Hooks: Emit message:sent
-        Platform->>User: Response in thread
-
-        Lock-->>Plugin: Release mutex
     end
+```
+
+### Engine Pipeline
+
+Shows what happens inside `orchestrator.process()` and the 10-stage agent pipeline.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Orch as Orchestrator
+    participant Hooks as Hooks Engine
+    participant Engine as Agent Engine
+    participant Mem as Memory Engine
+    participant Guard as Guardrails
+    participant Agent as generateText<br/>Vercel AI SDK
+    participant Tools as Tool Registry
+    participant Approve as Approval Gateway
+    participant Cost as Cost Tracker
+    participant Adapter as Channel Adapter
+    participant DB as Postgres + Valkey
+
+    Orch->>Hooks: emit message:received
+
+    Orch->>Engine: engine.run
+
+    Note over Engine: Stage 1: preProcess
+    Engine->>Guard: Input validation + prompt injection check
+    Guard-->>Engine: validated
+
+    Note over Engine: Stage 2: assembleContext
+    Engine->>Mem: assembleContext channelId + threadId
+    Mem->>DB: Tier 1: check Valkey cache
+    Mem->>DB: Tier 2: fallback to Postgres history
+    Mem->>DB: Tier 3: hybrid search for memories
+    DB-->>Mem: messages + top-N memories
+    Mem-->>Engine: assembled context
+
+    Note over Engine: Stages 3-6: loadTools, createSandbox,<br/>wrapApproval, composePrompt
+
+    Note over Engine: Stage 7: generate
+    Engine->>Agent: generateText with maxSteps
+
+    loop Agent Loop - maxSteps
+        Agent->>Tools: tool call
+
+        opt Tool requires approval
+            Tools->>Approve: check approval policy
+            Approve->>Adapter: requestApproval
+            Adapter-->>Approve: approved / denied
+            Approve-->>Tools: proceed or reject
+        end
+
+        Tools-->>Agent: tool result
+
+        opt Agent calls memory_save
+            Agent->>Mem: memory_save: durable fact
+            Mem->>DB: insert into channel_memories
+            Hooks->>Hooks: emit memory:saved
+        end
+    end
+
+    Agent-->>Engine: final response + usage
+
+    Note over Engine: Stage 8: postProcess
+    Engine->>Guard: Output validation
+    Guard-->>Engine: sanitized response
+
+    Note over Engine: Stage 9: persist
+    Engine->>Mem: persistConversation
+    Mem->>DB: update Valkey + Postgres
+
+    opt Token count exceeds threshold
+        Mem->>Agent: memory flush: silent turn
+        Mem->>DB: compact conversation to summary
+    end
+
+    Note over Engine: Stage 10: trackSkillUsage
+    Engine-->>Orch: result
+
+    Orch->>Cost: log tokens + cost
+    Cost->>DB: insert usage_logs
+
+    Orch->>Hooks: emit message:sending
+    Orch->>Adapter: sendMessage
+    Orch->>Hooks: emit message:sent
 ```
 
 ### Config Hot-Reload
@@ -814,54 +851,47 @@ sequenceDiagram
     participant API as Hono Backend API
     participant DB as PostgreSQL
     participant WS as WebSocket Hub
-    participant Agent as Agent Engine
+    participant Callback as onConfigChange<br/>in-process callback
+    participant Caches as Channel Resolver<br/>+ MCP Manager
 
     Admin->>Web: Update channel skills
-    Web->>API: PUT /api/channels/:id/skills
+    Web->>API: PUT /api/skills/:id
     API->>DB: Update skills table
     DB-->>API: Confirmed
     API->>WS: Broadcast config change event
-    WS->>Agent: Push updated config
-    Agent->>Agent: Reload skills + tools<br/>without restart
+    API->>Callback: Trigger onConfigChange
+    par Frontend notification
+        WS->>Web: Push change event via WebSocket
+        Web->>Web: Refetch and re-render UI
+    and Backend cache invalidation
+        Callback->>Caches: Invalidate channel resolver cache
+        Callback->>Caches: Invalidate MCP client cache<br/>if changeType is mcp
+    end
     API-->>Web: 200 OK
     Web-->>Admin: Success toast
 ```
 
 ---
 
-## API Route Inventory
+## API Routes
 
-| Method | Path                            | Description                  |
-| ------ | ------------------------------- | ---------------------------- |
-| GET    | `/health`                       | Health check                 |
-| GET    | `/api/channels`                 | List all channels            |
-| GET    | `/api/channels/:id`             | Get channel by ID            |
-| POST   | `/api/channels`                 | Create channel               |
-| PUT    | `/api/channels/:id`             | Update channel               |
-| DELETE | `/api/channels/:id`             | Delete channel               |
-| GET    | `/api/skills/:channelId`        | List skills for channel      |
-| POST   | `/api/skills`                   | Create skill                 |
-| PUT    | `/api/skills/:id`               | Update skill                 |
-| DELETE | `/api/skills/:id`               | Delete skill                 |
-| GET    | `/api/mcp`                      | List all MCP configs         |
-| GET    | `/api/mcp/:channelId`           | List MCP configs for channel |
-| POST   | `/api/mcp`                      | Create MCP config            |
-| PUT    | `/api/mcp/:id`                  | Update MCP config            |
-| DELETE | `/api/mcp/:id`                  | Delete MCP config            |
-| GET    | `/api/schedules/:channelId`     | List schedules               |
-| POST   | `/api/schedules`                | Create schedule              |
-| PUT    | `/api/schedules/:id`            | Update schedule              |
-| DELETE | `/api/schedules/:id`            | Delete schedule              |
-| GET    | `/api/identity/:channelId`      | Get identity config          |
-| PUT    | `/api/identity/:channelId`      | Update identity config       |
-| GET    | `/api/usage/:channelId`         | Get usage stats              |
-| GET    | `/api/usage/:channelId/daily`   | Get daily usage              |
-| GET    | `/api/approvals/:channelId`     | List approval policies       |
-| POST   | `/api/approvals`                | Create approval policy       |
-| DELETE | `/api/approvals/:id`            | Delete approval policy       |
-| GET    | `/api/memories/:channelId`      | List long-term memories      |
-| GET    | `/api/conversations/:channelId` | List conversations           |
-| GET    | `/api/skill-stats/:channelId`   | Skill usage statistics       |
+> Route definitions: `apps/api/src/routes/*.ts`. All `/api/*` routes require auth middleware.
+
+| Base Path | Module | Purpose |
+| --------- | ------ | ------- |
+| `/health` | `index.ts` | Health check (no auth) |
+| `/api/channels` | `channels.ts` | Channel CRUD |
+| `/api/skills` | `skills.ts` | Skill CRUD per channel |
+| `/api/skill-stats` | `skill-stats.ts` | Skill usage statistics per channel |
+| `/api/mcp` | `mcp.ts` | MCP config CRUD, connection testing, tool listing, tool policies |
+| `/api/schedules` | `schedules.ts` | Scheduled job CRUD per channel |
+| `/api/identity` | `identity.ts` | Identity + team prompt config per channel |
+| `/api/usage` | `usage.ts` | Token usage stats, daily aggregates, budget, model pricing |
+| `/api/memories` | `memories.ts` | Long-term memory list, search, edit, delete per channel |
+| `/api/conversations` | `conversations.ts` | Conversation history, detail, skill generation from tool calls |
+| `/api/approvals` | `approvals.ts` | Approval policy CRUD per channel |
+
+WebSocket: `/ws/config-updates` for config hot-reload (handled in Bun server before Hono).
 
 ---
 
@@ -903,68 +933,69 @@ Detailed setup instructions are in separate documents:
 
 ## Docker Compose
 
-```yaml
-services:
-  postgres:
-    container_name: postgres
-    image: pgvector/pgvector:pg16 # Postgres 16 with pgvector extension pre-installed
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: personalclaw
-      POSTGRES_USER: claw
-      POSTGRES_PASSWORD: claw_dev
-    ports:
-      - "5432:5432"
-    volumes:
-      - pg_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U claw -d personalclaw"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+> See [docker-compose.yaml](../docker-compose.yaml) for the full configuration.
 
-  valkey:
-    container_name: valkey
-    image: valkey/valkey:8.1-alpine
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+| Service | Image | Port | Purpose |
+| ------- | ----- | ---- | ------- |
+| `postgres` | `pgvector/pgvector:pg16` | 5432 | PostgreSQL 16 with pgvector extension |
+| `valkey` | `valkey/valkey:8.1-alpine` | 6379 | Redis-compatible cache (thread state, config cache, rate limiting) |
+| `api` | Built from `apps/api/Dockerfile` | 4000 | Hono backend on Bun |
+| `web` | Built from `apps/web/Dockerfile` | 3000 | Next.js frontend dashboard |
 
-  # api and web run natively via Bun in local dev.
-  # Uncomment for containerized deployment.
-  # api:
-  #   build:
-  #     context: .
-  #     dockerfile: apps/api/Dockerfile
-  #   restart: unless-stopped
-  #   ports:
-  #     - "4000:4000"
-  #   env_file: .env
-  #   volumes:
-  #     - ${HOME}/.aws:/home/appuser/.aws:ro
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     valkey:
-  #       condition: service_healthy
+The `api` service overrides `DATABASE_URL` and `VALKEY_URL` to use Docker internal hostnames. The `web` service overrides `API_URL` to reach the `api` container. Both read additional env vars from `.env`.
 
-  # web:
-  #   build:
-  #     context: .
-  #     dockerfile: apps/web/Dockerfile
-  #   restart: unless-stopped
-  #   ports:
-  #     - "3000:3000"
-  #   env_file: .env
-  #   depends_on:
-  #     api:
-  #       condition: service_started
+---
 
-volumes:
-  pg_data:
+## CI/CD Pipeline
+
+> Workflow definitions: `.github/workflows/`. Uses GitHub Actions with reusable workflows.
+
+```mermaid
+graph TB
+    subgraph trigger ["Trigger"]
+        Push["Push to any branch<br/>except v* tags"]:::input
+    end
+
+    subgraph quality ["quality job"]
+        Lint["Biome check<br/>lint + format"]:::ci
+        Types["Type check<br/>bun run check-types"]:::ci
+        Test["Tests<br/>bun run test"]:::ci
+        Build["Build all<br/>bun run build"]:::ci
+        Lint --> Types --> Test --> Build
+    end
+
+    subgraph release ["Semantic Release"]
+        RelMain["semantic-release<br/>production config"]:::release
+        RelDev["semantic-release<br/>dev pre-release config"]:::release
+    end
+
+    subgraph docker ["Docker Build and Push"]
+        DockerBuild["Build multi-platform images<br/>linux/amd64 + linux/arm64"]:::docker
+        WebImage["chrisleekr/personalclaw-web"]:::docker
+        APIImage["chrisleekr/personalclaw-api"]:::docker
+    end
+
+    Push --> quality
+
+    Build -->|"main branch"| RelMain
+    Build -->|"feat/fix/refactor/perf branch"| RelDev
+
+    RelMain -->|"new release published"| DockerBuild
+    RelDev -->|"new release published"| DockerBuild
+
+    DockerBuild --> WebImage
+    DockerBuild --> APIImage
+
+    classDef input fill:#1a5276,color:#ffffff
+    classDef ci fill:#196f3d,color:#ffffff
+    classDef release fill:#6c3483,color:#ffffff
+    classDef docker fill:#7d6608,color:#ffffff
 ```
+
+| Workflow | Trigger | Purpose |
+| -------- | ------- | ------- |
+| `ci.yml` | Push to any branch | Lint, type-check, test, build; triggers semantic release |
+| `semantic-release.yml` | Called by CI or manual | Semantic versioning, changelog, GitHub release |
+| `docker-build.yml` | Called by semantic-release or manual | Build and push `web` and `api` images to Docker Hub |
+| `generate-labels.yml` | PRs and issues | Auto-label from title via `.github/labeler.yml` |
+| `merge-dependencies.yml` | Dependabot PRs | Auto-merge minor/patch; comment on major updates |
