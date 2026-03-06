@@ -1,4 +1,4 @@
-// pgvector 'embedding vector(1536)' and tsvector 'search_vector' columns added via raw SQL migration
+// pgvector 'embedding vector(1024)' and tsvector 'search_vector' columns added via raw SQL migration
 import { index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { channels } from './channels';
 
