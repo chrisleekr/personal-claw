@@ -1,0 +1,30 @@
+# Dependencies
+node_modules
+
+# Build outputs
+.next
+dist
+.turbo
+out
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Lockfile: bun.lock (text format) is tracked in version control
+
+# TypeScript
+*.tsbuildinfo
+
+# Testing
+coverage
+
+# Release
+RELEASE_VERSION
+
+# Runtime data
+apps/api/data/
+
+# OS
+.DS_Store

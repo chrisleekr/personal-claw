@@ -1,0 +1,166 @@
+name: Semantic Release
+
+on:
+  workflow_call:
+    inputs:
+      is-dev-release:
+        description: 'Whether this is a dev/pre-release (uses dev config)'
+        required: false
+        type: boolean
+        default: false
+      skip-checks:
+        description: 'Skip quality checks (when caller already ran them)'
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      new-release-published:
+        description: 'Whether a new release was published'
+        value: ${{ jobs.release.outputs.new-release-published }}
+      new-release-version:
+        description: 'The version of the new release'
+        value: ${{ jobs.release.outputs.new-release-version }}
+  workflow_dispatch:
+    inputs:
+      is-dev-release:
+        description: 'Whether this is a dev/pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  BUN_VERSION: '1.3.9'
+  NODE_VERSION: '22'
+
+jobs:
+  release:
+    name: Semantic Release${{ inputs.is-dev-release && ' - Dev' || '' }}
+    runs-on: ubuntu-latest
+    env:
+      HUSKY: 0
+    timeout-minutes: 15
+    outputs:
+      new-release-published: ${{ steps.semantic-release.outputs.new-release-published }}
+      new-release-version: ${{ steps.semantic-release.outputs.new-release-version }}
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: personalclaw_test
+          POSTGRES_USER: claw
+          POSTGRES_PASSWORD: claw_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U claw -d personalclaw_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      valkey:
+        image: valkey/valkey:8.1-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Setup Node.js for semantic-release
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate DB client
+        run: bun run db:generate
+
+      - name: Biome check
+        if: ${{ !inputs.skip-checks }}
+        run: bun run check
+
+      - name: Run tests
+        if: ${{ !inputs.skip-checks }}
+        run: bun run test
+        env:
+          DATABASE_URL: 'postgresql://claw:claw_dev@localhost:5432/personalclaw_test'
+          REDIS_URL: 'redis://localhost:6379'
+
+      - name: Build all packages
+        run: bun run build
+        env:
+          DATABASE_URL: 'postgresql://claw:claw_dev@localhost:5432/personalclaw_test'
+
+      - name: Install semantic-release packages
+        run: |
+          npm install --no-save --no-package-lock \
+            semantic-release@^25.0.3 \
+            @semantic-release/changelog@^6.0.3 \
+            @semantic-release/commit-analyzer@^13.0.1 \
+            @semantic-release/git@^10.0.1 \
+            @semantic-release/github@^12.0.3 \
+            @semantic-release/npm@^13.1.3 \
+            @semantic-release/release-notes-generator@^14.1.0 \
+            @semantic-release/exec@^7.1.0
+
+      - name: Semantic Release
+        id: semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ "${{ inputs.is-dev-release }}" == "true" ]; then
+            echo "Running semantic-release with dev config..."
+            mv release.config.mjs release.config.mjs.backup
+            mv release.config.dev.mjs release.config.mjs
+          else
+            echo "Running semantic-release with production config..."
+          fi
+
+          npx semantic-release
+
+          if [ "${{ inputs.is-dev-release }}" == "true" ]; then
+            mv release.config.mjs release.config.dev.mjs
+            mv release.config.mjs.backup release.config.mjs
+          fi
+
+          if [ -f "RELEASE_VERSION" ]; then
+            VERSION=$(cat RELEASE_VERSION)
+            echo "New release published: v$VERSION"
+            echo "new-release-published=true" >> $GITHUB_OUTPUT
+            echo "new-release-version=$VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "No new release published"
+            echo "new-release-published=false" >> $GITHUB_OUTPUT
+          fi
+
+  docker:
+    needs: release
+    if: needs.release.outputs.new-release-published == 'true'
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      tag-name: 'v${{ needs.release.outputs.new-release-version }}'
+      is-dev-release: ${{ inputs.is-dev-release || false }}
+    secrets: inherit

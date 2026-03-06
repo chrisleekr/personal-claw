@@ -1,0 +1,42 @@
+---
+description: React and Next.js patterns for the dashboard
+globs: "**/*.tsx"
+alwaysApply: false
+---
+
+# React & Next.js Patterns
+
+## App Router
+
+- Use Server Components by default
+- Add `'use client'` directive only when component needs interactivity (useState, useEffect, event handlers)
+- Use `async` Server Components for data fetching -- no `useEffect` for data loading
+- Use `loading.tsx` for Suspense boundaries
+- Use `error.tsx` for error boundaries
+
+## Data Fetching
+
+- Server Components: use `async/await` with direct API calls or DB queries
+- Client Components: use Server Actions for mutations (`useActionState`)
+- Use URL search params for shareable/bookmarkable state
+- Use React state only for ephemeral UI state (modals, form inputs)
+
+## shadcn/ui
+
+- Import components from `@/components/ui/*`
+- Never install underlying Radix packages directly -- always use shadcn/ui wrappers
+- Use the `cn()` utility from `@/lib/utils` for conditional Tailwind classes
+
+## Styling
+
+- Tailwind CSS only -- no inline styles or CSS modules
+- Use CSS custom properties defined in `globals.css` for theming
+- Responsive design: mobile-first with `sm:`, `md:`, `lg:` breakpoints
+- Dark mode support via CSS custom properties in `@dark` block
+
+## Forms
+
+- Use Server Actions for form submissions
+- Validate with Zod schemas from `@personalclaw/shared`
+- Show loading states during submission
+- Display validation errors inline

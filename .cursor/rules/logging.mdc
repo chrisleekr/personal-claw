@@ -1,0 +1,97 @@
+---
+description: Structured logging standards using LogTape
+globs: "apps/api/**/*.ts"
+alwaysApply: false
+---
+
+# Logging with LogTape
+
+This project uses [LogTape](https://logtape.org/) (`@logtape/logtape`) for structured logging. Never use `console.log`, `console.warn`, `console.error`, or `console.info` in `apps/api`.
+
+## Setup
+
+Logger is configured once in `apps/api/src/logger.ts` and initialized at startup via `initLogger()`. HTTP request logging is handled by `@logtape/hono` middleware. No additional setup is needed per file.
+
+## Creating a Logger
+
+Each module creates a logger with a hierarchical category rooted at `"personalclaw"`:
+
+```typescript
+import { getLogger } from '@logtape/logtape';
+
+const logger = getLogger(['personalclaw', 'module', 'submodule']);
+```
+
+Category convention follows the directory structure:
+- `['personalclaw', 'agent', 'engine']` for `agent/engine.ts`
+- `['personalclaw', 'memory', 'decay']` for `memory/decay.ts`
+- `['personalclaw', 'cron', 'runner']` for `cron/runner.ts`
+
+Declare the logger at module scope (top of file), not inside functions.
+
+## Log Levels
+
+| Level | Use for |
+|-------|---------|
+| `debug` | Variable values, flow control decisions, verbose diagnostics |
+| `info` | Normal operations: startup, job completion, config changes |
+| `warn` | Recoverable issues: missing config, fallback triggered, retries |
+| `error` | Failed operations that the app survives |
+| `fatal` | Unrecoverable failures, process about to exit |
+
+## Syntax
+
+Prefer tagged template literals for simple messages:
+
+```typescript
+logger.info`Server started on port ${port}`;
+logger.warn`Provider ${name} failed, trying fallback`;
+logger.error`Cleanup failed: ${(error as Error).message}`;
+```
+
+Use message + properties object for structured data that should be queryable:
+
+```typescript
+logger.info("Cost log", {
+  channelId: ctx.channelId,
+  userId: ctx.externalUserId,
+  model: model ?? 'unknown',
+  tokens: tokens ?? 0,
+  cost: cost.toFixed(6),
+});
+```
+
+## What NOT to Do
+
+```typescript
+// Never use console.*
+console.log('[module] something happened');
+
+// Never duplicate the category in the message (LogTape adds it automatically)
+logger.info`[memory:decay] Cleaned up memories`;
+
+// Never create loggers inside hot paths (functions called per-request)
+function handleRequest() {
+  const logger = getLogger(['personalclaw', 'http']); // Move to module scope
+}
+```
+
+## Implicit Context
+
+For request-scoped data (channelId, requestId), use `withContext` so all downstream loggers automatically include it:
+
+```typescript
+import { withContext } from '@logtape/logtape';
+
+withContext({ channelId, requestId }, async () => {
+  // All logger.* calls inside here include channelId and requestId
+  await processRequest();
+});
+```
+
+The `@logtape/hono` middleware handles this automatically for HTTP requests.
+
+## Environment Behavior
+
+- **Development** (`NODE_ENV !== 'production'`): Pretty console output, `debug` level and above
+- **Production** (`NODE_ENV === 'production'`): JSON Lines format, `info` level and above

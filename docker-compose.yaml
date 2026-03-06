@@ -1,0 +1,66 @@
+services:
+  postgres:
+    container_name: postgres
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: personalclaw
+      POSTGRES_USER: claw
+      POSTGRES_PASSWORD: claw_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U claw -d personalclaw"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  valkey:
+    container_name: valkey
+    image: valkey/valkey:8.1-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://claw:claw_dev@postgres:5432/personalclaw
+      VALKEY_URL: redis://valkey:6379
+    volumes:
+      - ${HOME}/.aws:/home/appuser/.aws:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file: .env
+    environment:
+      API_URL: http://api:4000
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  pg_data:

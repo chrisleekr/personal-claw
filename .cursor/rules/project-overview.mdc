@@ -1,0 +1,33 @@
+---
+description: PersonalClaw monorepo overview and conventions
+alwaysApply: true
+---
+
+# PersonalClaw Project Overview
+
+## Monorepo Structure
+
+- `apps/web` - Next.js 15 frontend dashboard (port 3000)
+- `apps/api` - Hono backend on Bun (port 4000)
+- `packages/shared` - @personalclaw/shared: TypeScript types, Zod schemas, constants
+- `packages/db` - @personalclaw/db: Drizzle ORM schemas and migrations
+
+## Key Rules
+
+- Import types and schemas from `@personalclaw/shared`, never duplicate definitions
+- Import DB client and schema from `@personalclaw/db`, never import `drizzle-orm` or `postgres` directly in apps
+- Use Bun APIs where available (`Bun.serve`, `Bun.file`, `Bun.env`)
+- All database queries MUST be scoped by `channel_id` for channel isolation
+- Use Zod for all runtime validation
+- TypeScript strict mode, no `any` types
+
+## Infrastructure
+
+- PostgreSQL 16 + pgvector on port 5432
+- Valkey 8.1 (Redis-compatible) on port 6379
+- Docker Compose for local development
+
+## Package Manager
+
+- Bun (v1.3) - use `bun install`, `bun run`, `bun test`
+- Turborepo for task orchestration

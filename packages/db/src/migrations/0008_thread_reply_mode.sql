@@ -1,0 +1,1 @@
+ALTER TABLE "channels" ADD COLUMN "thread_reply_mode" text DEFAULT 'all' NOT NULL;

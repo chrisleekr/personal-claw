@@ -1,0 +1,1 @@
+ALTER TABLE "tool_policies" ALTER COLUMN "channel_id" DROP NOT NULL;

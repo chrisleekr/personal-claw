@@ -1,0 +1,29 @@
+{
+  "editor.insertSpaces": true,
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "biomejs.biome",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.biome": "explicit"
+  },
+  "search.exclude": {
+    ".git": true,
+    "**/.DS_Store": true,
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/.next": true,
+    "**/.turbo": true
+  },
+  "[json]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "cSpell.words": ["healthcheck", "isready", "logtape", "personalclaw", "pgvector", "valkey"]
+}

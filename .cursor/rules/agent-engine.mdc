@@ -1,0 +1,53 @@
+---
+description: Vercel AI SDK agent engine patterns
+globs: "apps/api/src/agent/**/*.ts"
+alwaysApply: false
+---
+
+# Agent Engine Patterns
+
+## Provider Abstraction
+
+- Always use Vercel AI SDK provider wrappers (`@ai-sdk/anthropic`, `@ai-sdk/amazon-bedrock`)
+- Never import `@anthropic-ai/sdk` or call Anthropic API directly
+- Provider selection is driven by channel config, with environment fallback
+
+## Tool Definition
+
+- Define tools with `tool()` from the `ai` package
+- Use Zod schemas for parameter validation
+- Tool `execute` functions must be async and return serializable data
+- Tag tools with `requiresApproval: true` metadata when they perform destructive actions
+
+## MCP Integration
+
+- Acquire tools via `MCPManager.getToolsForChannel()`
+- Merge MCP tools with native tools (memory_save, memory_search, memory_list)
+- Apply tool policies (allow/deny lists) before passing to `generateText`
+
+## Agent Loop
+
+- Use `generateText({ maxSteps })` for controllable multi-step execution
+- Default `maxSteps: 10` (configurable per channel)
+- Always inject relevant memories into system prompt before agent loop
+- Always run guardrails pre-processing before and post-processing after
+
+## Sub-Agent Delegation
+
+- Use `spawnSubtask()` for parallel background tasks
+- Sub-agents get isolated `generateText` calls with filtered tools
+- Results stored in Valkey keyed by task ID
+- Main agent retrieves results via `getSubtaskResult()`
+
+## Cost Tracking
+
+- After every `generateText` call, extract `usage.promptTokens` and `usage.completionTokens`
+- Log to `usage_logs` table via `CostTracker`
+- Calculate estimated cost using `MODEL_PRICING` from `@personalclaw/shared`
+
+## Memory Integration
+
+- Before building system prompt, call memory engine for top-N relevant memories
+- Agent has access to `memory_save`, `memory_search`, `memory_list` tools
+- After conversation, persist to Tier 1 (Valkey) and Tier 2 (Postgres)
+- Check for compaction threshold and trigger memory flush if needed

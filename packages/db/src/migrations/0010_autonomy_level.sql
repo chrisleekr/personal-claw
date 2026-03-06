@@ -1,0 +1,1 @@
+ALTER TABLE "channels" ADD COLUMN "autonomy_level" text DEFAULT 'balanced' NOT NULL;

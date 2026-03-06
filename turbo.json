@@ -1,0 +1,66 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "globalDependencies": [".env*"],
+  "globalEnv": ["CI"],
+  "globalPassThroughEnv": [
+    "DATABASE_URL",
+    "VALKEY_URL",
+    "AUTH_*",
+    "GOOGLE_CLIENT_*",
+    "SLACK_*",
+    "LLM_PROVIDER",
+    "ANTHROPIC_API_KEY",
+    "AWS_BEDROCK_*",
+    "OPENAI_API_KEY",
+    "EMBEDDING_PROVIDER",
+    "EMBEDDING_MODEL",
+    "GITHUB_TOKEN",
+    "API_URL"
+  ],
+  "tasks": {
+    "build": {
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": [".next/**", "dist/**"],
+      "dependsOn": ["^build", "^db:generate"],
+      "env": ["DATABASE_URL"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "interruptible": true,
+      "dependsOn": ["^build", "^db:generate"]
+    },
+    "lint": {
+      "inputs": ["$TURBO_DEFAULT$"],
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "check-types": {
+      "inputs": ["$TURBO_DEFAULT$"],
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "test": {
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": ["coverage/**"],
+      "dependsOn": ["^db:generate"]
+    },
+    "db:generate": {
+      "inputs": ["src/schema/**"],
+      "outputs": [],
+      "cache": false
+    },
+    "db:migrate": {
+      "cache": false
+    },
+    "db:studio": {
+      "cache": false,
+      "persistent": true,
+      "interactive": true
+    },
+    "clean": {
+      "cache": false
+    }
+  }
+}

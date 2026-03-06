@@ -1,0 +1,42 @@
+---
+description: Drizzle ORM schema and migration conventions
+globs: "packages/db/**/*.ts"
+alwaysApply: false
+---
+
+# Drizzle ORM Conventions
+
+## Table Definitions
+
+- Use `pgTable()` for all table definitions
+- UUID primary keys: `uuid('id').primaryKey().defaultRandom()`
+- All tables MUST have `createdAt` and `updatedAt` timestamp columns
+- Foreign keys: always define with `.references(() => table.id, { onDelete: 'cascade' })`
+
+## Column Types
+
+- Text: `text()` for strings (no varchar -- Postgres text is equivalent)
+- Numbers: `integer()` for ints, `decimal()` for money/precision values
+- Booleans: `boolean()` with explicit `.default()`
+- JSON: `jsonb()` only when schema is truly dynamic; prefer typed columns
+- Arrays: `text().array()` for string arrays
+- Timestamps: `timestamp('col', { withTimezone: true })` always with timezone
+
+## Indexes
+
+- Always add indexes for foreign keys
+- Add composite indexes for frequent query patterns (e.g., `channelId + createdAt`)
+- Use `unique()` constraints for natural keys (e.g., `channelId + serverName`)
+
+## pgvector & tsvector
+
+- pgvector columns (`embedding vector(1536)`) are managed via raw SQL migrations
+- tsvector columns (`search_vector`) use generated-always-as-stored expressions
+- These columns cannot be defined in Drizzle schema -- add via custom migration SQL
+
+## Migrations
+
+- Generate: `bunx drizzle-kit generate`
+- Apply: `bunx drizzle-kit migrate`
+- Never edit generated migration files manually
+- After schema changes, always generate and review the migration before applying

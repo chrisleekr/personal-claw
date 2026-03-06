@@ -1,0 +1,45 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    target-branch: main
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      types:
+        patterns:
+          - "@types/*"
+        update-types:
+          - "major"
+      dev-tooling:
+        dependency-type: "development"
+        patterns:
+          - "@biomejs/*"
+          - "typescript*"
+          - "turbo*"
+          - "husky*"
+          - "lint-staged*"
+          - "@commitlint/*"
+        update-types:
+          - "major"

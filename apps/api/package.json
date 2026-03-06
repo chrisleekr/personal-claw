@@ -1,0 +1,40 @@
+{
+  "name": "@personalclaw/api",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun --external playwright",
+    "start": "bun run dist/index.js",
+    "lint": "biome check . && tsc --noEmit",
+    "check-types": "tsc --noEmit",
+    "test": "bun test",
+    "clean": "rm -rf dist .turbo node_modules"
+  },
+  "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^4.0.64",
+    "@ai-sdk/anthropic": "^3.0.47",
+    "@ai-sdk/mcp": "^1.0.21",
+    "@ai-sdk/openai": "^3.0.33",
+    "@aws-sdk/credential-providers": "^3.998.0",
+    "@hono/zod-validator": "^0.7.6",
+    "@logtape/hono": "^2.0.4",
+    "@logtape/logtape": "^2.0.4",
+    "@personalclaw/db": "workspace:*",
+    "@personalclaw/shared": "workspace:*",
+    "@slack/bolt": "^4.2.0",
+    "ai": "^6.0.99",
+    "hono": "^4.7.0",
+    "ioredis": "^5.4.0",
+    "nanoid": "^5.0.0",
+    "node-cron": "^3.0.0",
+    "ollama-ai-provider-v2": "^3.3.1",
+    "playwright": "^1.58.2",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/node-cron": "^3.0.0",
+    "typescript": "^5.7.0"
+  }
+}

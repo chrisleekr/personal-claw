@@ -1,0 +1,46 @@
+---
+description: Hono backend and channel adapter patterns
+globs: "apps/api/**/*.ts"
+alwaysApply: false
+---
+
+# Hono Backend Patterns
+
+## Route Structure
+
+- Use `app.route()` for modular route mounting in `src/index.ts`
+- Each route file exports a `Hono` instance
+- Validate request bodies with Zod schemas from `@personalclaw/shared`
+- Return consistent JSON: `{ data }` for success, `{ error, message }` for failures
+
+## Channel Adapter
+
+- Agent engine depends on `ChannelAdapter` interface, never on platform SDKs
+- Platform-specific code (Slack, Discord, etc.) lives in `src/<platform>/`
+- Each platform constructs its adapter and passes it to `AgentEngine.run()`
+- Extract `channelId`, `userId`, `threadId` from platform event context
+
+## Thread Safety
+
+- Always acquire thread lock (`withThreadLock`) before agent execution
+- Thread lock is a mutex keyed by `threadId` to prevent concurrent processing
+
+## Observability
+
+- Use LogTape for all logging -- never use `console.*` (see `logging.mdc` rule)
+- Log cost after every `generateText` / `streamText` call via `CostTracker`
+- Include `externalUserId` in all logs, conversations, and usage records
+- Emit lifecycle hooks at correct points via `HooksEngine`
+
+## Agent Engine
+
+- Use Vercel AI SDK `generateText()` with `maxSteps` for multi-step execution
+- Build system prompt via `PromptComposer` (respects `promptInjectMode`)
+- Merge MCP tools with native memory tools
+- Run guardrails pre/post processing around agent loop
+- Persist conversation after each successful run
+
+## Config Hot-Reload
+
+- Call `emitConfigChange()` after any config update in routes
+- Agent engine listens for config changes and reloads without restart

@@ -1,0 +1,1 @@
+ALTER TABLE "channels" ADD COLUMN "sandbox_config" jsonb;
