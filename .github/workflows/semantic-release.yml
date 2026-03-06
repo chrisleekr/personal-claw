@@ -116,7 +116,11 @@ jobs:
 
       - name: Install semantic-release packages
         run: |
-          npm install --no-save --no-package-lock \
+          SR_DIR="$RUNNER_TEMP/semantic-release"
+          mkdir -p "$SR_DIR"
+          cd "$SR_DIR"
+          npm init -y > /dev/null 2>&1
+          npm install --no-package-lock \
             semantic-release@^25.0.3 \
             @semantic-release/changelog@^6.0.3 \
             @semantic-release/commit-analyzer@^13.0.1 \
@@ -125,6 +129,7 @@ jobs:
             @semantic-release/npm@^13.1.3 \
             @semantic-release/release-notes-generator@^14.1.0 \
             @semantic-release/exec@^7.1.0
+          echo "$SR_DIR/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Semantic Release
         id: semantic-release
@@ -139,7 +144,7 @@ jobs:
             echo "Running semantic-release with production config..."
           fi
 
-          npx semantic-release
+          semantic-release
 
           if [ "${{ inputs.is-dev-release }}" == "true" ]; then
             mv release.config.mjs release.config.dev.mjs
