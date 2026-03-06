@@ -4,10 +4,11 @@ import { config } from '../config';
 
 const logger = getLogger(['personalclaw', 'middleware', 'auth']);
 
-export async function authMiddleware(c: Context, next: Next): Promise<Response | undefined> {
+export async function authMiddleware(c: Context, next: Next) {
   const secret = config.API_SECRET;
   if (!secret) {
-    return next();
+    await next();
+    return;
   }
 
   const authHeader = c.req.header('Authorization');
@@ -22,5 +23,5 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
     return c.json({ error: 'unauthorized', message: 'Invalid credentials' }, 401);
   }
 
-  return next();
+  await next();
 }

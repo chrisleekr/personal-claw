@@ -106,10 +106,10 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 
 export default {
   port,
-  fetch(req: Request, server: Server) {
+  fetch(req: Request, server: Server<unknown>) {
     const url = new URL(req.url);
     if (url.pathname === '/ws/config-updates') {
-      if (server.upgrade(req)) return undefined;
+      if (server.upgrade(req, { data: {} })) return undefined;
       return new Response('WebSocket upgrade failed', { status: 400 });
     }
     return app.fetch(req, server);

@@ -8,7 +8,7 @@
     "start": "bun run dist/index.js",
     "lint": "biome check . && tsc --noEmit",
     "check-types": "tsc --noEmit",
-    "test": "bun test",
+    "test": "bun run scripts/test-isolated.ts",
     "clean": "rm -rf dist .turbo node_modules"
   },
   "dependencies": {

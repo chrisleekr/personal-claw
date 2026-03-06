@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { type Dirent, existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -225,15 +225,16 @@ class BubblewrapSandbox implements Sandbox {
 function collectEntries(dirPath: string, workspacePath: string, recursive: boolean): FileEntry[] {
   const entries: FileEntry[] = [];
 
-  let items: ReturnType<typeof readdirSync>;
+  let items: Dirent[];
   try {
-    items = readdirSync(dirPath, { withFileTypes: true });
+    items = readdirSync(dirPath, { withFileTypes: true }) as Dirent[];
   } catch {
     return entries;
   }
 
   for (const item of items) {
-    const fullPath = join(dirPath, item.name);
+    const name = String(item.name);
+    const fullPath = join(dirPath, name);
     const relativePath = fullPath.slice(workspacePath.length + 1);
     const isDir = item.isDirectory();
     let size = 0;
@@ -243,7 +244,7 @@ function collectEntries(dirPath: string, workspacePath: string, recursive: boole
       /* ignore stat errors */
     }
 
-    entries.push({ name: item.name, path: relativePath, isDirectory: isDir, size });
+    entries.push({ name, path: relativePath, isDirectory: isDir, size });
 
     if (recursive && isDir) {
       entries.push(...collectEntries(fullPath, workspacePath, true));

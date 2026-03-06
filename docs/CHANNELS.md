@@ -84,24 +84,12 @@ Defined in `apps/api/src/channels/adapter.ts`:
 
 ```typescript
 export interface ChannelAdapter {
-  /**
-   * Send a text message in the given thread.
-   *
-   * The adapter is responsible for mapping `threadId` to the platform's
-   * native threading mechanism (e.g., Slack's `thread_ts`, Discord's
-   * message reply, etc.).
-   */
+  /** Send a text message in the given thread. */
   sendMessage(threadId: string, text: string): Promise<void>;
 
   /**
    * Request approval from the user before executing a tool.
-   *
-   * The adapter renders platform-appropriate UI (Slack Block Kit buttons,
-   * Discord embed buttons, CLI stdin prompt, etc.) and waits for the user
-   * to respond.
-   *
-   * Returns `true` if the user approves, `false` if denied or timed out.
-   * Must NOT throw on timeout — return `false` instead.
+   * Returns `true` if approved, `false` if denied or timed out.
    */
   requestApproval(params: {
     threadId: string;
@@ -110,11 +98,18 @@ export interface ChannelAdapter {
   }): Promise<boolean>;
 
   /**
+   * Request approval for multiple tools at once (batch).
+   * Shown as a single consolidated message to the user.
+   * Returns `true` if all approved, `false` if denied or timed out.
+   * Falls back to sequential individual approvals if not implemented.
+   */
+  requestBatchApproval?(params: {
+    threadId: string;
+    tools: Array<{ toolName: string; args: Record<string, unknown> }>;
+  }): Promise<boolean>;
+
+  /**
    * Request approval for a multi-step execution plan.
-   *
-   * Similar to `requestApproval`, but displays a plan summary and ordered
-   * steps instead of a single tool call.
-   *
    * Returns `true` if approved, `false` if rejected or timed out.
    * Must NOT throw on timeout — return `false` instead.
    */
@@ -123,16 +118,24 @@ export interface ChannelAdapter {
     planSummary: string;
     steps: string[];
   }): Promise<boolean>;
+
+  /**
+   * Format platform-specific user mentions from an array of user IDs.
+   * Returns an empty string when the platform does not support mentions.
+   */
+  formatMentions?(userIds: string[]): string;
 }
 ```
 
 ### Contract
 
-| Method                | Must                                       | Must Not                                           |
-| --------------------- | ------------------------------------------ | -------------------------------------------------- |
-| `sendMessage`         | Deliver the message in the correct thread  | Throw on network errors (log and retry internally) |
-| `requestApproval`     | Return `false` on timeout (default: 5 min) | Block indefinitely                                 |
-| `requestPlanApproval` | Show all steps to the user                 | Modify or filter the steps                         |
+| Method                 | Must                                          | Must Not                                           |
+| ---------------------- | --------------------------------------------- | -------------------------------------------------- |
+| `sendMessage`          | Deliver the message in the correct thread     | Throw on network errors (log and retry internally) |
+| `requestApproval`      | Return `false` on timeout (default: 5 min)    | Block indefinitely                                 |
+| `requestBatchApproval` | Return `false` on timeout (optional method)   | Throw if not implemented (adapter may omit it)     |
+| `requestPlanApproval`  | Show all steps to the user                    | Modify or filter the steps                         |
+| `formatMentions`       | Return empty string if unsupported (optional) | Throw if platform lacks mentions                   |
 
 ### Error Handling
 
