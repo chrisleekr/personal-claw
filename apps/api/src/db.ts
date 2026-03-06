@@ -3,7 +3,7 @@ import { config } from './config';
 
 let dbInstance: Database | null = null;
 
-export function getDb() {
+export function getDb(): Database {
   if (!dbInstance) {
     dbInstance = createDb(config.DATABASE_URL);
   }

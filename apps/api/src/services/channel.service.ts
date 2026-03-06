@@ -4,6 +4,18 @@ import { invalidateConfig } from '../channels/config-cache';
 import { getDb } from '../db';
 import { NotFoundError } from '../errors/app-error';
 
+function coerceBudget<T extends { costBudgetDailyUsd?: number | null }>(
+  input: T,
+): Omit<T, 'costBudgetDailyUsd'> & { costBudgetDailyUsd?: string | null } {
+  const { costBudgetDailyUsd, ...rest } = input;
+  return {
+    ...rest,
+    ...(costBudgetDailyUsd !== undefined && {
+      costBudgetDailyUsd: costBudgetDailyUsd != null ? String(costBudgetDailyUsd) : null,
+    }),
+  } as Omit<T, 'costBudgetDailyUsd'> & { costBudgetDailyUsd?: string | null };
+}
+
 export class ChannelService {
   async list() {
     const db = getDb();
@@ -19,7 +31,7 @@ export class ChannelService {
 
   async create(input: CreateChannelInput) {
     const db = getDb();
-    const [row] = await db.insert(channels).values(input).returning();
+    const [row] = await db.insert(channels).values(coerceBudget(input)).returning();
     return row;
   }
 
@@ -27,7 +39,7 @@ export class ChannelService {
     const db = getDb();
     const [row] = await db
       .update(channels)
-      .set({ ...input, updatedAt: new Date() })
+      .set({ ...coerceBudget(input), updatedAt: new Date() })
       .where(eq(channels.id, id))
       .returning();
     if (!row) throw new NotFoundError('Channel', id);

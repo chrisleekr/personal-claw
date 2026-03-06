@@ -235,7 +235,7 @@ export class ApprovalGateway {
             };
           }
           const start = performance.now();
-          const result = await (originalExecute as (...args: never) => unknown)(args, options);
+          const result = await (originalExecute as (...args: unknown[]) => unknown)(args, options);
           this.toolTimings.set(options.toolCallId, Math.round(performance.now() - start));
           return result;
         },

@@ -1,10 +1,13 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { and, eq, isNull } from 'drizzle-orm';
 import { createDb } from './index';
 import { mcpConfigs } from './schema';
 
-dotenv.config({ path: path.resolve(import.meta.dir, '../../../.env') });
+dotenv.config({
+  path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.env'),
+});
 
 const GLOBAL_MCP_SERVERS = [
   {
