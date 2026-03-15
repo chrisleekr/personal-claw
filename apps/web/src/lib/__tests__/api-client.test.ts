@@ -61,12 +61,15 @@ describe('api client', () => {
       expect(calls[2][0] as string).toContain('/api/channels');
     });
 
-    test('continues without token when token endpoint fails', async () => {
+    test('omits Authorization header when token endpoint fails', async () => {
       pushResponse(401, { error: 'unauthorized' }); // token fetch fails
       pushResponse(200, { data: [] }); // API call still made
       await api.channels.list();
       const calls = (globalThis.fetch as ReturnType<typeof mock>).mock.calls;
       expect(calls).toHaveLength(2);
+      const apiInit = calls[1][1] as RequestInit;
+      const headers = apiInit.headers as Record<string, string>;
+      expect(headers['Authorization']).toBeUndefined();
     });
   });
 
