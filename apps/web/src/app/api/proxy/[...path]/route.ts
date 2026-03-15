@@ -34,11 +34,19 @@ async function proxyRequest(
 
   const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.text();
 
-  const backendResponse = await fetch(url.toString(), {
-    method: request.method,
-    headers,
-    body,
-  });
+  let backendResponse: Response;
+  try {
+    backendResponse = await fetch(url.toString(), {
+      method: request.method,
+      headers,
+      body,
+    });
+  } catch {
+    return NextResponse.json(
+      { error: 'bad_gateway', message: 'Unable to reach backend API' },
+      { status: 502 },
+    );
+  }
 
   const responseBody = await backendResponse.text();
   return new NextResponse(responseBody, {
