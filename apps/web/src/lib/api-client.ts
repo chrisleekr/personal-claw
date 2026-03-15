@@ -21,39 +21,14 @@ import type {
   UpdateSkillInput,
 } from '@personalclaw/shared';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-
-let cachedToken: string | null = null;
-
-async function getApiToken(): Promise<string | null> {
-  if (cachedToken !== null) return cachedToken;
-  try {
-    const res = await fetch('/api/auth/api-token');
-    if (res.ok) {
-      const body = (await res.json()) as { token: string };
-      cachedToken = body.token;
-      return cachedToken;
-    }
-  } catch {
-    /* token endpoint unavailable */
-  }
-  return null;
-}
-
-/** Clear the cached API token (e.g. on sign-out). */
-export function clearApiToken(): void {
-  cachedToken = null;
-}
-
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = await getApiToken();
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  const response = await fetch(`${API_URL}${path}`, {
-    headers,
-    ...options,
+  const { headers: optionHeaders, ...rest } = options ?? {};
+  const response = await fetch(`/api/proxy${path}`, {
+    ...rest,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(optionHeaders as Record<string, string>),
+    },
   });
   if (!response.ok) {
     let serverMessage = '';
