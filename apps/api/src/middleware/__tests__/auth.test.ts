@@ -70,12 +70,13 @@ describe('authMiddleware', () => {
     expect(res.status).toBe(401);
   });
 
-  test('skips auth when API_SECRET is not configured', async () => {
+  test('returns 503 when API_SECRET is not configured', async () => {
     mockApiSecret = undefined;
     const res = await app.request('/test');
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     const body = await res.json();
-    expect(body.ok).toBe(true);
+    expect(body.error).toBe('server_misconfiguration');
+    expect(body.message).toContain('Authentication is not configured');
   });
 
   test('rejects empty Authorization header', async () => {
@@ -83,5 +84,14 @@ describe('authMiddleware', () => {
       headers: { Authorization: '' },
     });
     expect(res.status).toBe(401);
+  });
+
+  test('rejects token with different length than secret', async () => {
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer short' },
+    });
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toBe('unauthorized');
   });
 });
