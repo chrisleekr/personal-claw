@@ -3,6 +3,11 @@ import { auth } from '@/lib/auth';
 
 const API_URL = process.env.API_URL || 'http://localhost:4000';
 
+/** Request headers safe to forward to the backend (lowercase). */
+const FORWARDED_REQUEST_HEADERS = ['content-type', 'accept'];
+/** Response headers safe to forward back to the browser (lowercase). */
+const FORWARDED_RESPONSE_HEADERS = ['content-type', 'x-request-id', 'cache-control'];
+
 async function proxyRequest(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> },
@@ -25,11 +30,20 @@ async function proxyRequest(
   const url = new URL(backendPath, API_URL);
   url.search = request.nextUrl.search;
 
+  // Validate the resolved pathname to prevent SSRF via directory traversal.
+  // new URL resolves '..' segments, so '/api/../../internal' becomes '/internal'.
+  if (!url.pathname.startsWith('/api/')) {
+    return NextResponse.json(
+      { error: 'forbidden', message: 'Invalid proxy path' },
+      { status: 403 },
+    );
+  }
+
   const headers = new Headers();
   headers.set('Authorization', `Bearer ${apiSecret}`);
-  const contentType = request.headers.get('Content-Type');
-  if (contentType) {
-    headers.set('Content-Type', contentType);
+  for (const name of FORWARDED_REQUEST_HEADERS) {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
   }
 
   const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.text();
@@ -49,11 +63,17 @@ async function proxyRequest(
   }
 
   const responseBody = await backendResponse.text();
+  const responseHeaders = new Headers();
+  for (const name of FORWARDED_RESPONSE_HEADERS) {
+    const value = backendResponse.headers.get(name);
+    if (value) responseHeaders.set(name, value);
+  }
+  if (!responseHeaders.has('content-type')) {
+    responseHeaders.set('content-type', 'application/json');
+  }
   return new NextResponse(responseBody, {
     status: backendResponse.status,
-    headers: {
-      'Content-Type': backendResponse.headers.get('Content-Type') || 'application/json',
-    },
+    headers: responseHeaders,
   });
 }
 

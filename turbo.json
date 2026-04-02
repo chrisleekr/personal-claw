@@ -16,6 +16,7 @@
     "EMBEDDING_PROVIDER",
     "EMBEDDING_MODEL",
     "GITHUB_TOKEN",
+    "API_SECRET",
     "API_URL"
   ],
   "tasks": {

@@ -8,6 +8,8 @@ interface ConfigChangeEvent {
   timestamp: number;
 }
 
+// NEXT_PUBLIC_API_URL is intentionally used here for the WebSocket connection.
+// REST API calls go through /api/proxy instead — see apps/web/src/app/api/proxy/.
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 function deriveWsUrl(httpUrl: string): string {
