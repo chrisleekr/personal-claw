@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/chrisleekr/personal-claw/compare/v1.0.0...v1.0.1) (2026-04-02)
+
+
+### Bug Fixes
+
+* auth middleware fails closed when API_SECRET is unset ([#18](https://github.com/chrisleekr/personal-claw/issues/18)) ([2a71594](https://github.com/chrisleekr/personal-claw/commit/2a715948a88c7771d733b71e972c0c82b6c7d9c6))
+
 # 1.0.0 (2026-03-06)
 
 
