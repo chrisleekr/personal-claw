@@ -20,6 +20,25 @@ afterEach(() => {
 import { api } from '../api-client';
 
 describe('api client', () => {
+  describe('proxy routing', () => {
+    test('routes requests through /api/proxy', async () => {
+      mockFetchResponse = { status: 200, body: { data: [] } };
+      await api.channels.list();
+      const calledUrl = (globalThis.fetch as ReturnType<typeof mock>).mock.calls[0][0] as string;
+      expect(calledUrl).toBe('/api/proxy/api/channels');
+    });
+
+    test('sends Content-Type header', async () => {
+      mockFetchResponse = { status: 200, body: { data: [] } };
+      await api.channels.list();
+      const calledInit = (globalThis.fetch as ReturnType<typeof mock>).mock
+        .calls[0][1] as RequestInit;
+      expect((calledInit.headers as Record<string, string>)['Content-Type']).toBe(
+        'application/json',
+      );
+    });
+  });
+
   describe('channels', () => {
     test('list calls correct endpoint', async () => {
       mockFetchResponse = { status: 200, body: { data: [{ id: 'ch1' }] } };

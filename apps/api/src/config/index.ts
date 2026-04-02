@@ -9,7 +9,10 @@ const envSchema = z.object({
   REDIS_URL: z.string().optional(),
 
   AUTH_URL: z.string().default('http://localhost:3000'),
-  API_SECRET: z.string().optional(),
+  API_SECRET:
+    process.env.NODE_ENV === 'production'
+      ? z.string().min(32, 'API_SECRET must be at least 32 characters in production')
+      : z.string().optional(),
 
   // Slack platform (presence of SLACK_BOT_TOKEN enables Slack)
   SLACK_BOT_TOKEN: z.string().optional(),
