@@ -210,6 +210,7 @@ describe('buildTransport', () => {
       ['valid', '| cat /etc/passwd'],
       ['&& curl evil.com'],
       ['$(whoami)'],
+      ['${IFS}'],
       ['`id`'],
       ['> /etc/passwd'],
       ['< /etc/shadow'],
@@ -250,6 +251,28 @@ describe('buildTransport', () => {
       };
       expect(() => buildTransport(config)).not.toThrow();
     });
+  });
+
+  describe('rejects eval/exec flags in args', () => {
+    const evalFlags = ['-e', '--eval', '-p', '--print', '-c'];
+
+    for (const flag of evalFlags) {
+      test(`rejects eval flag: ${flag}`, () => {
+        const config: MCPServerConfig = {
+          id: 'sec-eval',
+          serverName: 'eval-attack',
+          transportType: 'stdio',
+          serverUrl: null,
+          enabled: true,
+          channelId: null,
+          command: 'node',
+          args: [flag, 'process.exit(1)'],
+          env: null,
+          cwd: null,
+        };
+        expect(() => buildTransport(config)).toThrow('rejected by security policy');
+      });
+    }
   });
 
   describe('rejects path traversal in cwd', () => {
@@ -343,6 +366,40 @@ describe('buildTransport', () => {
         args: null,
         env: null,
         cwd: '/a'.repeat(251),
+      };
+      expect(() => buildTransport(config)).toThrow('rejected by security policy');
+    });
+  });
+
+  describe('rejects malformed args from DB', () => {
+    test('rejects args containing non-string elements', () => {
+      const config = {
+        id: 'sec-8',
+        serverName: 'bad-db-args',
+        transportType: 'stdio' as const,
+        serverUrl: null,
+        enabled: true,
+        channelId: null,
+        command: 'npx',
+        args: [123, { cmd: 'evil' }] as unknown as string[],
+        env: null,
+        cwd: null,
+      };
+      expect(() => buildTransport(config)).toThrow('rejected by security policy');
+    });
+
+    test('rejects args that is not an array', () => {
+      const config = {
+        id: 'sec-9',
+        serverName: 'bad-db-args-obj',
+        transportType: 'stdio' as const,
+        serverUrl: null,
+        enabled: true,
+        channelId: null,
+        command: 'npx',
+        args: 'not-an-array' as unknown as string[],
+        env: null,
+        cwd: null,
       };
       expect(() => buildTransport(config)).toThrow('rejected by security policy');
     });

@@ -1,3 +1,4 @@
+import { getLogger } from '@logtape/logtape';
 import { approvalPolicies, eq } from '@personalclaw/db';
 import type { ApprovalPolicy } from '@personalclaw/shared';
 import type { ToolExecutionOptions, ToolSet } from 'ai';
@@ -6,6 +7,8 @@ import { z } from 'zod';
 import type { ChannelAdapter } from '../channels/adapter';
 import { getDb } from '../db';
 import { HooksEngine } from '../hooks/engine';
+
+const logger = getLogger(['personalclaw', 'agent', 'approval-gateway']);
 
 const hooks = HooksEngine.getInstance();
 
@@ -76,6 +79,12 @@ export class ApprovalGateway {
       .from(approvalPolicies)
       .where(eq(approvalPolicies.channelId, this.channelId));
 
+    logger.debug('Loaded approval policies from DB', {
+      channelId: this.channelId,
+      rowCount: rows.length,
+      rows: rows.map((r) => ({ toolName: r.toolName, policy: r.policy })),
+    });
+
     const exact = new Map<string, ApprovalPolicyRow>();
     const patterns: PatternPolicyEntry[] = [];
 
@@ -93,6 +102,12 @@ export class ApprovalGateway {
     }
 
     patterns.sort((a, b) => b.specificity - a.specificity);
+
+    logger.debug('Parsed approval policies', {
+      exactCount: exact.size,
+      patternCount: patterns.length,
+      patterns: patterns.map((p) => ({ regex: p.pattern.source, specificity: p.specificity })),
+    });
 
     this.policyCache = exact;
     this.patternPolicies = patterns;
@@ -176,7 +191,17 @@ export class ApprovalGateway {
 
   async checkApproval(toolName: string, args: Record<string, unknown>): Promise<boolean> {
     const policies = await this.loadPolicies();
-    const row = policies.get(toolName) ?? this.findPatternMatch(toolName);
+    const exactMatch = policies.get(toolName);
+    const patternMatch = exactMatch ? undefined : this.findPatternMatch(toolName);
+    const row = exactMatch ?? patternMatch;
+
+    logger.debug('Checking approval', {
+      toolName,
+      channelId: this.channelId,
+      matchType: exactMatch ? 'exact' : patternMatch ? 'pattern' : 'none',
+      matchedPolicy: row?.policy ?? null,
+      patternCount: this.patternPolicies.length,
+    });
 
     if (row) {
       const policy = row.policy as ApprovalPolicy;
@@ -212,7 +237,24 @@ export class ApprovalGateway {
       return true;
     }
 
+    logger.debug('No policy matched, queuing for user approval', {
+      toolName,
+      channelId: this.channelId,
+      planApproved: this.planApproved,
+      isSafeTool: this.safeToolNames.has(toolName),
+    });
     return this.queueForApproval(toolName, args, 'default');
+  }
+
+  async getAutoApprovedNames(toolNames: string[]): Promise<Set<string>> {
+    await this.loadPolicies();
+    const result = new Set<string>();
+    for (const name of toolNames) {
+      const exactMatch = this.policyCache?.get(name);
+      const row = exactMatch ?? this.findPatternMatch(name);
+      if (row?.policy === 'auto') result.add(name);
+    }
+    return result;
   }
 
   wrapTools(tools: ToolSet): ToolSet {

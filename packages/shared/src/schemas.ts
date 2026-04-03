@@ -9,6 +9,7 @@ import {
 import {
   ALLOWED_STDIO_COMMANDS,
   BLOCKED_ENV_KEYS,
+  BLOCKED_EVAL_FLAGS,
   MAX_STDIO_ARG_LENGTH,
   MAX_STDIO_ARGS_COUNT,
   MAX_STDIO_CWD_LENGTH,
@@ -119,7 +120,7 @@ export const updateSkillSchema = createSkillSchema.partial().omit({ channelId: t
 
 export const mcpTransportTypeSchema = z.enum(['sse', 'http', 'stdio']);
 
-/** Zod schema for a single stdio arg: bounded length, no shell metacharacters. */
+/** Zod schema for a single stdio arg: bounded length. */
 export const stdioArgSchema = z
   .string()
   .max(MAX_STDIO_ARG_LENGTH, `Arg must be at most ${MAX_STDIO_ARG_LENGTH} characters`);
@@ -129,7 +130,11 @@ export const stdioArgsSchema = z
   .array(stdioArgSchema)
   .max(MAX_STDIO_ARGS_COUNT, `At most ${MAX_STDIO_ARGS_COUNT} args allowed`)
   .refine((args) => !args.some((a) => SHELL_METACHAR_PATTERN.test(a)), {
-    message: 'Args must not contain shell metacharacters (;, |, &, `, $()',
+    message:
+      'Args must not contain shell metacharacters or control characters (e.g. ;, |, &, <, >, `, $(), $\\{}, newlines, or null bytes)',
+  })
+  .refine((args) => !args.some((a) => BLOCKED_EVAL_FLAGS.has(a)), {
+    message: `Args must not contain eval/exec flags: ${[...BLOCKED_EVAL_FLAGS].join(', ')}`,
   });
 
 /** Zod schema for stdio env: rejects dangerous env var keys. */

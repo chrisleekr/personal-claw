@@ -229,6 +229,24 @@ describe('MCPService', () => {
       expect(() => updateMCPConfigSchema.parse({ transportType: 'http' })).toThrow('serverUrl');
     });
 
+    test('rejects changing transportType to stdio with null command', () => {
+      expect(() => updateMCPConfigSchema.parse({ transportType: 'stdio', command: null })).toThrow(
+        'command',
+      );
+    });
+
+    test('rejects changing transportType to sse with null serverUrl', () => {
+      expect(() => updateMCPConfigSchema.parse({ transportType: 'sse', serverUrl: null })).toThrow(
+        'serverUrl',
+      );
+    });
+
+    test('rejects changing transportType to http with null serverUrl', () => {
+      expect(() => updateMCPConfigSchema.parse({ transportType: 'http', serverUrl: null })).toThrow(
+        'serverUrl',
+      );
+    });
+
     test('accepts partial update without transportType', () => {
       const result = updateMCPConfigSchema.parse({ command: 'npx' });
       expect(result.command).toBe('npx');

@@ -172,10 +172,17 @@ export const wrapApprovalStage: PipelineStage = async (ctx) => {
     ctx.params.adapter,
     ctx.safeToolNames,
   );
+
+  // Tools with "auto" approval policy should be treated as safe/autonomous
+  // so the system prompt doesn't force the model through confirm_plan.
+  const autoApproved = await gateway.getAutoApprovedNames(Object.keys(ctx.tools));
+  const mergedSafeNames = new Set([...ctx.safeToolNames, ...autoApproved]);
+
   const wrappedTools = gateway.wrapTools(ctx.tools);
   const confirmPlanTool = gateway.getConfirmPlanTool();
   return {
     ...ctx,
+    safeToolNames: mergedSafeNames,
     tools: { confirm_plan: confirmPlanTool, ...wrappedTools },
     toolTimings: gateway.toolTimings,
     getDismissedPlan: () => gateway.lastPlan,

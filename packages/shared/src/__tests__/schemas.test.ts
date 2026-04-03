@@ -275,6 +275,7 @@ describe('createMCPConfigSchema', () => {
       ['valid', '| cat /etc/passwd'],
       ['&& curl evil.com'],
       ['$(whoami)'],
+      ['${IFS}'],
       ['`id`'],
       ['> /etc/passwd'],
       ['< /etc/shadow'],
@@ -328,6 +329,32 @@ describe('createMCPConfigSchema', () => {
         '@modelcontextprotocol/server-filesystem',
         '/home/user/projects',
       ]);
+    });
+  });
+
+  describe('eval flag validation', () => {
+    const evalFlags = ['-e', '--eval', '-p', '--print', '-c'];
+    for (const flag of evalFlags) {
+      test(`rejects eval flag: ${flag}`, () => {
+        expect(() =>
+          createMCPConfigSchema.parse({
+            serverName: 'evil',
+            transportType: 'stdio',
+            command: 'node',
+            args: [flag, 'process.exit(1)'],
+          }),
+        ).toThrow('eval');
+      });
+    }
+
+    test('allows non-eval flags', () => {
+      const result = createMCPConfigSchema.parse({
+        serverName: 'ok',
+        transportType: 'stdio',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-filesystem'],
+      });
+      expect(result.args).toEqual(['-y', '@modelcontextprotocol/server-filesystem']);
     });
   });
 

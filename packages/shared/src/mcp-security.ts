@@ -47,10 +47,26 @@ export const MAX_STDIO_CWD_LENGTH = 500;
  * Regex matching shell metacharacters that could allow injection when
  * passed as arguments to `child_process.spawn`.
  *
- * Covers: semicolons, pipes, ampersands, backticks, command substitution,
- * redirection operators, newlines, and null bytes.
+ * Covers: semicolons, pipes, ampersands, backticks, command substitution
+ * ($(...) and ${...}), redirection operators, newlines, and null bytes.
  */
-export const SHELL_METACHAR_PATTERN = /[;|&`<>]|\$\(|[\n\r\0]/;
+export const SHELL_METACHAR_PATTERN = /[;|&`<>]|\$\(|\$\{|[\n\r\0]/;
+
+/**
+ * Flags that allow inline code execution on allowed commands.
+ * These must be blocked to prevent arbitrary code execution even
+ * when the binary itself is in the allowlist.
+ *
+ * Covers: node -e, node --eval, node -p, node --print,
+ *         python3 -c, deno eval (handled by arg check),
+ *         bun -e, bun --eval.
+ */
+export const BLOCKED_EVAL_FLAGS = new Set(['-e', '--eval', '-p', '--print', '-c']);
+
+/** Returns true when ANY arg matches a blocked eval/exec flag. */
+export function hasEvalFlag(args: string[]): boolean {
+  return args.some((a) => BLOCKED_EVAL_FLAGS.has(a));
+}
 
 /** Returns true when the command is in the allowlist. */
 export function isAllowedStdioCommand(command: string): boolean {

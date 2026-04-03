@@ -25,24 +25,22 @@ export const updateMCPConfigSchema = z
     cwd: stdioCwdSchema.nullable().optional(),
     enabled: z.boolean().optional(),
   })
-  .refine(
-    (data) => {
-      if (data.transportType === 'stdio' && data.command === undefined) {
-        return false;
-      }
-      if (
-        (data.transportType === 'sse' || data.transportType === 'http') &&
-        data.serverUrl === undefined
-      ) {
-        return false;
-      }
-      return true;
-    },
-    {
-      message:
-        'When changing transportType to stdio, "command" is required; when changing to sse/http, "serverUrl" is required',
-    },
-  );
+  .superRefine((data, ctx) => {
+    if (data.transportType === 'stdio' && (data.command == null || data.command.trim() === '')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['command'],
+        message: 'command is required when transportType is "stdio"',
+      });
+    }
+    if ((data.transportType === 'sse' || data.transportType === 'http') && data.serverUrl == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['serverUrl'],
+        message: 'serverUrl is required when transportType is "sse" or "http"',
+      });
+    }
+  });
 
 export type UpdateMCPConfigInput = z.infer<typeof updateMCPConfigSchema>;
 

@@ -5,6 +5,7 @@ import { eq, isNull, mcpConfigs, or } from '@personalclaw/db';
 import type { MCPTransportType } from '@personalclaw/shared';
 import {
   hasBlockedEnvKey,
+  hasEvalFlag,
   hasPathTraversal,
   hasShellMetachars,
   isAllowedStdioCommand,
@@ -53,6 +54,14 @@ function validateStdioConfig(config: MCPServerConfig): void {
     );
   }
   if (config.args) {
+    if (!Array.isArray(config.args) || !config.args.every((a) => typeof a === 'string')) {
+      logger.warn('Rejected stdio args: invalid type from DB', {
+        serverName: config.serverName,
+      });
+      throw new Error(
+        `MCP config "${config.serverName}": stdio configuration rejected by security policy`,
+      );
+    }
     if (config.args.length > MAX_STDIO_ARGS_COUNT) {
       logger.warn('Rejected stdio args: too many', {
         serverName: config.serverName,
@@ -76,11 +85,18 @@ function validateStdioConfig(config: MCPServerConfig): void {
         `MCP config "${config.serverName}": stdio configuration rejected by security policy`,
       );
     }
+    if (hasEvalFlag(config.args)) {
+      logger.warn('Rejected stdio args: eval/exec flag detected', {
+        serverName: config.serverName,
+      });
+      throw new Error(
+        `MCP config "${config.serverName}": stdio configuration rejected by security policy`,
+      );
+    }
   }
   if (config.env && hasBlockedEnvKey(config.env)) {
-    logger.warn('Rejected stdio env: blocked key', {
+    logger.warn('Rejected stdio env: blocked key detected', {
       serverName: config.serverName,
-      keys: Object.keys(config.env),
     });
     throw new Error(
       `MCP config "${config.serverName}": stdio configuration rejected by security policy`,
