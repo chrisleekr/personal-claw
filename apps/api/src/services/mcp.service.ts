@@ -1,23 +1,46 @@
 import { createMCPClient } from '@ai-sdk/mcp';
 import { and, eq, isNull, mcpConfigs, or, toolPolicies } from '@personalclaw/db';
 import type { CreateMCPConfigInput, MCPTransportType } from '@personalclaw/shared';
+import {
+  stdioArgsSchema,
+  stdioCommandSchema,
+  stdioCwdSchema,
+  stdioEnvSchema,
+} from '@personalclaw/shared';
 import { z } from 'zod';
 import { emitConfigChange } from '../config/hot-reload';
 import { getDb } from '../db';
 import { NotFoundError } from '../errors/app-error';
 import { buildTransport, type MCPServerConfig } from '../mcp/config';
 
-export const updateMCPConfigSchema = z.object({
-  serverName: z.string().min(1).optional(),
-  transportType: z.enum(['sse', 'http', 'stdio']).optional(),
-  serverUrl: z.string().url().nullable().optional(),
-  headers: z.record(z.string()).nullable().optional(),
-  command: z.string().min(1).nullable().optional(),
-  args: z.array(z.string()).nullable().optional(),
-  env: z.record(z.string()).nullable().optional(),
-  cwd: z.string().nullable().optional(),
-  enabled: z.boolean().optional(),
-});
+export const updateMCPConfigSchema = z
+  .object({
+    serverName: z.string().min(1).optional(),
+    transportType: z.enum(['sse', 'http', 'stdio']).optional(),
+    serverUrl: z.string().url().nullable().optional(),
+    headers: z.record(z.string()).nullable().optional(),
+    command: stdioCommandSchema.nullable().optional(),
+    args: stdioArgsSchema.nullable().optional(),
+    env: stdioEnvSchema.nullable().optional(),
+    cwd: stdioCwdSchema.nullable().optional(),
+    enabled: z.boolean().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.transportType === 'stdio' && (data.command == null || data.command.trim() === '')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['command'],
+        message: 'command is required when transportType is "stdio"',
+      });
+    }
+    if ((data.transportType === 'sse' || data.transportType === 'http') && data.serverUrl == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['serverUrl'],
+        message: 'serverUrl is required when transportType is "sse" or "http"',
+      });
+    }
+  });
 
 export type UpdateMCPConfigInput = z.infer<typeof updateMCPConfigSchema>;
 

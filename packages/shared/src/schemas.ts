@@ -6,6 +6,16 @@ import {
   DEFAULT_PROMPT_INJECT_MODE,
   DEFAULT_PROVIDER,
 } from './constants';
+import {
+  ALLOWED_STDIO_COMMANDS,
+  BLOCKED_ENV_KEYS,
+  BLOCKED_EVAL_FLAGS,
+  hasEvalFlag,
+  MAX_STDIO_ARG_LENGTH,
+  MAX_STDIO_ARGS_COUNT,
+  MAX_STDIO_CWD_LENGTH,
+  SHELL_METACHAR_PATTERN,
+} from './mcp-security';
 
 export const memoryConfigSchema = z.object({
   maxMemories: z.number().int().positive().default(200),
@@ -111,6 +121,46 @@ export const updateSkillSchema = createSkillSchema.partial().omit({ channelId: t
 
 export const mcpTransportTypeSchema = z.enum(['sse', 'http', 'stdio']);
 
+/** Zod schema for a single stdio arg: bounded length. */
+export const stdioArgSchema = z
+  .string()
+  .max(MAX_STDIO_ARG_LENGTH, `Arg must be at most ${MAX_STDIO_ARG_LENGTH} characters`);
+
+/** Zod schema for stdio args array: bounded count, validated elements. */
+export const stdioArgsSchema = z
+  .array(stdioArgSchema)
+  .max(MAX_STDIO_ARGS_COUNT, `At most ${MAX_STDIO_ARGS_COUNT} args allowed`)
+  .refine((args) => !args.some((a) => SHELL_METACHAR_PATTERN.test(a)), {
+    message:
+      'Args must not contain shell metacharacters or control characters (e.g. ;, |, &, <, >, `, $(), $\\{}, newlines, or null bytes)',
+  })
+  .refine((args) => !hasEvalFlag(args), {
+    message: `Args must not contain eval/exec flags: ${[...BLOCKED_EVAL_FLAGS].join(', ')}`,
+  });
+
+/** Zod schema for stdio env: rejects dangerous env var keys. */
+export const stdioEnvSchema = z
+  .record(z.string())
+  .refine((env) => !Object.keys(env).some((k) => BLOCKED_ENV_KEYS.has(k.toUpperCase())), {
+    message: `Blocked environment variable detected. Disallowed keys: ${[...BLOCKED_ENV_KEYS].join(', ')}`,
+  });
+
+/** Zod schema for stdio cwd: bounded length, no path traversal. */
+export const stdioCwdSchema = z
+  .string()
+  .max(MAX_STDIO_CWD_LENGTH, `cwd must be at most ${MAX_STDIO_CWD_LENGTH} characters`)
+  .refine((cwd) => !/(^|[\\/])\.\.($|[\\/])/.test(cwd), {
+    message: 'cwd must not contain path traversal (..)',
+  });
+
+/** Zod schema for stdio command: must be in the allowlist. */
+export const stdioCommandSchema = z
+  .string()
+  .min(1)
+  .refine((cmd) => ALLOWED_STDIO_COMMANDS.has(cmd), {
+    message: `Command must be one of: ${[...ALLOWED_STDIO_COMMANDS].join(', ')}`,
+  });
+
 export const createMCPConfigSchema = z
   .object({
     channelId: z.string().uuid().nullable().default(null),
@@ -118,10 +168,10 @@ export const createMCPConfigSchema = z
     transportType: mcpTransportTypeSchema.default('sse'),
     serverUrl: z.string().url().nullable().default(null),
     headers: z.record(z.string()).nullable().default(null),
-    command: z.string().min(1).nullable().default(null),
-    args: z.array(z.string()).nullable().default(null),
-    env: z.record(z.string()).nullable().default(null),
-    cwd: z.string().nullable().default(null),
+    command: stdioCommandSchema.nullable().default(null),
+    args: stdioArgsSchema.nullable().default(null),
+    env: stdioEnvSchema.nullable().default(null),
+    cwd: stdioCwdSchema.nullable().default(null),
     enabled: z.boolean().default(true),
   })
   .refine(

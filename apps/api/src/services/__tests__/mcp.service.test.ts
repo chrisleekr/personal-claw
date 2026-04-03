@@ -206,10 +206,66 @@ describe('MCPService', () => {
     });
 
     test('accepts valid transport types', () => {
-      for (const t of ['sse', 'http', 'stdio']) {
-        const result = updateMCPConfigSchema.parse({ transportType: t });
+      for (const t of ['sse', 'http'] as const) {
+        const result = updateMCPConfigSchema.parse({
+          transportType: t,
+          serverUrl: 'https://example.com',
+        });
         expect(result.transportType).toBe(t);
       }
+      const stdioResult = updateMCPConfigSchema.parse({ transportType: 'stdio', command: 'npx' });
+      expect(stdioResult.transportType).toBe('stdio');
+    });
+
+    test('rejects changing transportType to stdio without command', () => {
+      expect(() => updateMCPConfigSchema.parse({ transportType: 'stdio' })).toThrow('command');
+    });
+
+    test('rejects changing transportType to sse without serverUrl', () => {
+      expect(() => updateMCPConfigSchema.parse({ transportType: 'sse' })).toThrow('serverUrl');
+    });
+
+    test('rejects changing transportType to http without serverUrl', () => {
+      expect(() => updateMCPConfigSchema.parse({ transportType: 'http' })).toThrow('serverUrl');
+    });
+
+    test('rejects changing transportType to stdio with null command', () => {
+      expect(() => updateMCPConfigSchema.parse({ transportType: 'stdio', command: null })).toThrow(
+        'command',
+      );
+    });
+
+    test('rejects changing transportType to sse with null serverUrl', () => {
+      expect(() => updateMCPConfigSchema.parse({ transportType: 'sse', serverUrl: null })).toThrow(
+        'serverUrl',
+      );
+    });
+
+    test('rejects changing transportType to http with null serverUrl', () => {
+      expect(() => updateMCPConfigSchema.parse({ transportType: 'http', serverUrl: null })).toThrow(
+        'serverUrl',
+      );
+    });
+
+    test('accepts partial update without transportType', () => {
+      const result = updateMCPConfigSchema.parse({ command: 'npx' });
+      expect(result.command).toBe('npx');
+    });
+
+    test('rejects disallowed command', () => {
+      expect(() => updateMCPConfigSchema.parse({ command: 'bash' })).toThrow();
+    });
+
+    test('rejects shell metacharacters in args', () => {
+      expect(() => updateMCPConfigSchema.parse({ args: ['--flag; rm -rf /'] })).toThrow();
+    });
+
+    test('rejects blocked env key', () => {
+      expect(() => updateMCPConfigSchema.parse({ env: { LD_PRELOAD: '/tmp/evil' } })).toThrow();
+    });
+
+    test('rejects path traversal in cwd', () => {
+      expect(() => updateMCPConfigSchema.parse({ cwd: '../../../etc' })).toThrow();
     });
   });
 });

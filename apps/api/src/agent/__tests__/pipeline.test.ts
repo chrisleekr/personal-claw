@@ -358,6 +358,15 @@ describe('createSandboxStage', () => {
 });
 
 describe('wrapApprovalStage', () => {
+  beforeEach(() => {
+    // Reset DB mock to return empty rows so loadPolicies() succeeds with no policies
+    mockDbSelect.mockReturnValue({
+      from: mock(() => ({
+        where: mock(() => Promise.resolve([])),
+      })),
+    });
+  });
+
   test('adds confirm_plan tool to context', async () => {
     const ctx = makeBaseCtx({
       tools: { existing_tool: {} as never },

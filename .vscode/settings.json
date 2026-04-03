@@ -25,5 +25,8 @@
   "[typescriptreact]": {
     "editor.defaultFormatter": "biomejs.biome"
   },
-  "cSpell.words": ["healthcheck", "isready", "logtape", "personalclaw", "pgvector", "valkey"]
+  "cSpell.words": ["healthcheck", "isready", "logtape", "personalclaw", "pgvector", "valkey"],
+  "[dockercompose]": {
+    "editor.defaultFormatter": "ms-azuretools.vscode-containers"
+  }
 }
