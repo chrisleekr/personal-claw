@@ -273,6 +273,66 @@ describe('buildTransport', () => {
         expect(() => buildTransport(config)).toThrow('rejected by security policy');
       });
     }
+
+    const evalBypasses: { label: string; args: string[] }[] = [
+      { label: '--eval=code', args: ['--eval=process.exit(1)'] },
+      { label: '-ecode (concatenated)', args: ['-eprocess.exit(1)'] },
+      { label: '--print=expr', args: ['--print=process.env'] },
+      { label: '-p"expr" (concatenated)', args: ['-p"process.env"'] },
+      { label: 'positional eval subcommand', args: ['eval', 'Deno.exit(1)'] },
+    ];
+
+    for (const { label, args } of evalBypasses) {
+      test(`rejects eval bypass: ${label}`, () => {
+        const config: MCPServerConfig = {
+          id: 'sec-eval-bypass',
+          serverName: 'eval-bypass',
+          transportType: 'stdio',
+          serverUrl: null,
+          enabled: true,
+          channelId: null,
+          command: 'node',
+          args,
+          env: null,
+          cwd: null,
+        };
+        expect(() => buildTransport(config)).toThrow('rejected by security policy');
+      });
+    }
+  });
+
+  describe('rejects malformed env/cwd types from DB', () => {
+    test('rejects env that is an array', () => {
+      const config = {
+        id: 'sec-env-arr',
+        serverName: 'bad-env-type',
+        transportType: 'stdio' as const,
+        serverUrl: null,
+        enabled: true,
+        channelId: null,
+        command: 'npx',
+        args: null,
+        env: ['not', 'an', 'object'] as unknown as Record<string, string>,
+        cwd: null,
+      };
+      expect(() => buildTransport(config)).toThrow('rejected by security policy');
+    });
+
+    test('rejects cwd that is not a string', () => {
+      const config = {
+        id: 'sec-cwd-type',
+        serverName: 'bad-cwd-type',
+        transportType: 'stdio' as const,
+        serverUrl: null,
+        enabled: true,
+        channelId: null,
+        command: 'npx',
+        args: null,
+        env: null,
+        cwd: 42 as unknown as string,
+      };
+      expect(() => buildTransport(config)).toThrow('rejected by security policy');
+    });
   });
 
   describe('rejects path traversal in cwd', () => {

@@ -356,6 +356,27 @@ describe('createMCPConfigSchema', () => {
       });
       expect(result.args).toEqual(['-y', '@modelcontextprotocol/server-filesystem']);
     });
+
+    const evalBypasses: { label: string; args: string[] }[] = [
+      { label: '--eval=code', args: ['--eval=process.exit(1)'] },
+      { label: '-ecode (concatenated)', args: ['-eprocess.exit(1)'] },
+      { label: '--print=expr', args: ['--print=process.env'] },
+      { label: '-p"expr" (concatenated)', args: ['-p"process.env"'] },
+      { label: 'positional eval subcommand', args: ['eval', 'Deno.exit(1)'] },
+    ];
+
+    for (const { label, args } of evalBypasses) {
+      test(`rejects eval bypass: ${label}`, () => {
+        expect(() =>
+          createMCPConfigSchema.parse({
+            serverName: 'evil',
+            transportType: 'stdio',
+            command: 'node',
+            args,
+          }),
+        ).toThrow('eval');
+      });
+    }
   });
 
   describe('cwd validation', () => {

@@ -94,15 +94,33 @@ function validateStdioConfig(config: MCPServerConfig): void {
       );
     }
   }
-  if (config.env && hasBlockedEnvKey(config.env)) {
-    logger.warn('Rejected stdio env: blocked key detected', {
-      serverName: config.serverName,
-    });
-    throw new Error(
-      `MCP config "${config.serverName}": stdio configuration rejected by security policy`,
-    );
+  if (config.env) {
+    if (typeof config.env !== 'object' || Array.isArray(config.env)) {
+      logger.warn('Rejected stdio env: invalid type from DB', {
+        serverName: config.serverName,
+      });
+      throw new Error(
+        `MCP config "${config.serverName}": stdio configuration rejected by security policy`,
+      );
+    }
+    if (hasBlockedEnvKey(config.env)) {
+      logger.warn('Rejected stdio env: blocked key detected', {
+        serverName: config.serverName,
+      });
+      throw new Error(
+        `MCP config "${config.serverName}": stdio configuration rejected by security policy`,
+      );
+    }
   }
   if (config.cwd) {
+    if (typeof config.cwd !== 'string') {
+      logger.warn('Rejected stdio cwd: invalid type from DB', {
+        serverName: config.serverName,
+      });
+      throw new Error(
+        `MCP config "${config.serverName}": stdio configuration rejected by security policy`,
+      );
+    }
     if (config.cwd.length > MAX_STDIO_CWD_LENGTH) {
       logger.warn('Rejected stdio cwd: exceeds max length', { serverName: config.serverName });
       throw new Error(

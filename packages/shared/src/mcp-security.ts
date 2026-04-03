@@ -14,25 +14,29 @@
  * some systems, which is EOL and carries known vulnerabilities.
  * Users should explicitly use `python3`.
  */
-export const ALLOWED_STDIO_COMMANDS = new Set(['npx', 'node', 'uvx', 'python3', 'deno', 'bun']);
+export const ALLOWED_STDIO_COMMANDS: ReadonlySet<string> = Object.freeze(
+  new Set(['npx', 'node', 'uvx', 'python3', 'deno', 'bun']),
+);
 
 /**
  * Environment variable keys that are never allowed in MCP stdio `env`.
  * Matched case-insensitively.
  */
-export const BLOCKED_ENV_KEYS = new Set([
-  'LD_PRELOAD',
-  'LD_LIBRARY_PATH',
-  'DYLD_INSERT_LIBRARIES',
-  'DYLD_FRAMEWORK_PATH',
-  'NODE_OPTIONS',
-  'PYTHONPATH',
-  'PYTHONSTARTUP',
-  'PATH',
-  'BASH_ENV',
-  'ENV',
-  'CDPATH',
-]);
+export const BLOCKED_ENV_KEYS: ReadonlySet<string> = Object.freeze(
+  new Set([
+    'LD_PRELOAD',
+    'LD_LIBRARY_PATH',
+    'DYLD_INSERT_LIBRARIES',
+    'DYLD_FRAMEWORK_PATH',
+    'NODE_OPTIONS',
+    'PYTHONPATH',
+    'PYTHONSTARTUP',
+    'PATH',
+    'BASH_ENV',
+    'ENV',
+    'CDPATH',
+  ]),
+);
 
 /** Maximum number of args for a stdio command. */
 export const MAX_STDIO_ARGS_COUNT = 20;
@@ -61,11 +65,54 @@ export const SHELL_METACHAR_PATTERN = /[;|&`<>]|\$\(|\$\{|[\n\r\0]/;
  *         python3 -c, deno eval (handled by arg check),
  *         bun -e, bun --eval.
  */
-export const BLOCKED_EVAL_FLAGS = new Set(['-e', '--eval', '-p', '--print', '-c']);
+export const BLOCKED_EVAL_FLAGS: ReadonlySet<string> = Object.freeze(
+  new Set(['-e', '--eval', '-p', '--print', '-c']),
+);
 
-/** Returns true when ANY arg matches a blocked eval/exec flag. */
+/**
+ * Short flags that accept their value concatenated without a space,
+ * e.g. `-ecode` or `-p"expr"`, which bypass exact Set.has() matching.
+ */
+const SHORT_EVAL_FLAGS = ['-e', '-p', '-c'];
+
+/**
+ * Long flags that accept `=`-separated values,
+ * e.g. `--eval=code` or `--print=expr`.
+ */
+const LONG_EVAL_FLAGS = ['--eval=', '--print='];
+
+/**
+ * Subcommands that allow inline code execution when used as a
+ * positional argument (e.g. `deno eval "code"`).
+ */
+const EVAL_SUBCOMMANDS = ['eval'];
+
+/**
+ * Returns true when ANY arg matches a blocked eval/exec flag.
+ *
+ * Checks:
+ * - Exact match: `-e`, `--eval`, `-p`, `--print`, `-c`
+ * - Short-flag concatenation: `-ecode`, `-p"expr"`
+ * - Long-flag=value: `--eval=code`, `--print=expr`
+ * - Positional subcommands: `eval` (for `deno eval`)
+ */
 export function hasEvalFlag(args: string[]): boolean {
-  return args.some((a) => BLOCKED_EVAL_FLAGS.has(a));
+  return args.some((a) => {
+    // Exact match (original check)
+    if (BLOCKED_EVAL_FLAGS.has(a)) return true;
+
+    // Short flag with concatenated value: -ecode, -p"expr"
+    // Must be longer than the flag itself to distinguish from exact match
+    if (SHORT_EVAL_FLAGS.some((flag) => a.startsWith(flag) && a.length > flag.length)) return true;
+
+    // Long flag with =value: --eval=code, --print=expr
+    if (LONG_EVAL_FLAGS.some((prefix) => a.startsWith(prefix))) return true;
+
+    // Positional subcommand: "eval" (e.g. deno eval "code")
+    if (EVAL_SUBCOMMANDS.includes(a)) return true;
+
+    return false;
+  });
 }
 
 /** Returns true when the command is in the allowlist. */

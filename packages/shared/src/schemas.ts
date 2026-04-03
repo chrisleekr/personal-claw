@@ -10,6 +10,7 @@ import {
   ALLOWED_STDIO_COMMANDS,
   BLOCKED_ENV_KEYS,
   BLOCKED_EVAL_FLAGS,
+  hasEvalFlag,
   MAX_STDIO_ARG_LENGTH,
   MAX_STDIO_ARGS_COUNT,
   MAX_STDIO_CWD_LENGTH,
@@ -133,7 +134,7 @@ export const stdioArgsSchema = z
     message:
       'Args must not contain shell metacharacters or control characters (e.g. ;, |, &, <, >, `, $(), $\\{}, newlines, or null bytes)',
   })
-  .refine((args) => !args.some((a) => BLOCKED_EVAL_FLAGS.has(a)), {
+  .refine((args) => !hasEvalFlag(args), {
     message: `Args must not contain eval/exec flags: ${[...BLOCKED_EVAL_FLAGS].join(', ')}`,
   });
 
