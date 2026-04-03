@@ -1,23 +1,48 @@
 import { createMCPClient } from '@ai-sdk/mcp';
 import { and, eq, isNull, mcpConfigs, or, toolPolicies } from '@personalclaw/db';
 import type { CreateMCPConfigInput, MCPTransportType } from '@personalclaw/shared';
+import {
+  stdioArgsSchema,
+  stdioCommandSchema,
+  stdioCwdSchema,
+  stdioEnvSchema,
+} from '@personalclaw/shared';
 import { z } from 'zod';
 import { emitConfigChange } from '../config/hot-reload';
 import { getDb } from '../db';
 import { NotFoundError } from '../errors/app-error';
 import { buildTransport, type MCPServerConfig } from '../mcp/config';
 
-export const updateMCPConfigSchema = z.object({
-  serverName: z.string().min(1).optional(),
-  transportType: z.enum(['sse', 'http', 'stdio']).optional(),
-  serverUrl: z.string().url().nullable().optional(),
-  headers: z.record(z.string()).nullable().optional(),
-  command: z.string().min(1).nullable().optional(),
-  args: z.array(z.string()).nullable().optional(),
-  env: z.record(z.string()).nullable().optional(),
-  cwd: z.string().nullable().optional(),
-  enabled: z.boolean().optional(),
-});
+export const updateMCPConfigSchema = z
+  .object({
+    serverName: z.string().min(1).optional(),
+    transportType: z.enum(['sse', 'http', 'stdio']).optional(),
+    serverUrl: z.string().url().nullable().optional(),
+    headers: z.record(z.string()).nullable().optional(),
+    command: stdioCommandSchema.nullable().optional(),
+    args: stdioArgsSchema.nullable().optional(),
+    env: stdioEnvSchema.nullable().optional(),
+    cwd: stdioCwdSchema.nullable().optional(),
+    enabled: z.boolean().optional(),
+  })
+  .refine(
+    (data) => {
+      if (data.transportType === 'stdio' && data.command === undefined) {
+        return false;
+      }
+      if (
+        (data.transportType === 'sse' || data.transportType === 'http') &&
+        data.serverUrl === undefined
+      ) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message:
+        'When changing transportType to stdio, "command" is required; when changing to sse/http, "serverUrl" is required',
+    },
+  );
 
 export type UpdateMCPConfigInput = z.infer<typeof updateMCPConfigSchema>;
 

