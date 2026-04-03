@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/chrisleekr/personal-claw/compare/v1.0.1...v1.0.2) (2026-04-03)
+
+
+### Bug Fixes
+
+* **mcp:** prevent arbitrary command execution in stdio transport ([#19](https://github.com/chrisleekr/personal-claw/issues/19)) ([528fd5b](https://github.com/chrisleekr/personal-claw/commit/528fd5b7d5fbe3d04a64ff2a49d13270e123a877))
+
 ## [1.0.1](https://github.com/chrisleekr/personal-claw/compare/v1.0.0...v1.0.1) (2026-04-02)
 
 
