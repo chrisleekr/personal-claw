@@ -3,9 +3,9 @@
 **Input**: Design documents from `/specs/20260406-221125-ollama-embedding-provider/`
 **Prerequisites**: plan.md (required), spec.md (required), research.md, data-model.md, contracts/
 
-**Tests**: Not explicitly requested in the specification. Test tasks are included as they are essential for validating embedding provider correctness.
+**Tests**: Included — tests are essential for validating embedding provider correctness.
 
-**Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
+**Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story. Phases 1-5 reflect initial implementation (completed). Phase 6 addresses PR review findings. Phase 7 is final polish.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -80,22 +80,45 @@
 
 ### Implementation for User Story 3
 
-- [x] T014 [US3] Write unit test verifying `generateEmbedding()` throws when Ollama is unreachable (connection refused) in `apps/api/src/memory/__tests__/embeddings.test.ts`
-- [x] T015 [US3] Write unit test verifying `generateEmbedding()` throws when the configured Ollama model is not pulled/available in `apps/api/src/memory/__tests__/embeddings.test.ts`
+- [x] T014 [US3] Write unit test verifying `generateEmbedding()` throws when Ollama is unreachable (connection refused) in `apps/api/src/memory/__tests__/embeddings.test.ts` — **DEFECTIVE: test has zero assertions due to Bun module caching, see T018**
+- [x] T015 [US3] Write unit test verifying `generateEmbedding()` throws when the configured Ollama model is not pulled/available in `apps/api/src/memory/__tests__/embeddings.test.ts` — **DEFECTIVE: test does not exist despite being marked complete, see T020**
 - [x] T016 [US3] Verify existing graceful degradation in `LongTermMemory.save()` catches Ollama errors and saves without embedding — review `apps/api/src/memory/longterm.ts` (no code change expected — document that the existing try/catch handles this)
 
 **Checkpoint**: User Story 3 confirmed — graceful degradation works for Ollama failures.
 
 ---
 
-## Phase 6: Polish & Cross-Cutting Concerns
+## Phase 6: PR Review Fixes
 
-**Purpose**: Documentation, JSDoc, and final validation
+**Purpose**: Address 9 validated PR review findings from Copilot and CodeRabbit (11 comments total: 6 unique + 3 duplicates + 1 partially valid). See `plan.md > PR Review Findings (2026-04-07)` for full analysis.
 
-- [x] T017 [P] Add JSDoc comments to any new or modified exports in `apps/api/src/memory/embeddings.ts` per Constitution Principle IV
-- [x] T018 [P] Update `docker-compose.yaml` if Ollama service definition is useful for local development (optional — skipped: Ollama runs natively for GPU access)
-- [x] T019 Run full `bun run check` — typecheck, lint, and all tests must pass
-- [ ] T020 Run quickstart.md validation: verify the documented steps work end-to-end with a running Ollama instance pulling `mxbai-embed-large`
+### Must Fix (code/test correctness)
+
+- [x] T017 [P] Fix `.env.example`: revert default `EMBEDDING_PROVIDER` from `ollama` to `openai`, comment out `EMBEDDING_MODEL` (remove active `mxbai-embed-large:latest`), and fix documented Ollama default in comment to `mxbai-embed-large` (no `:latest` tag) in `.env.example` — addresses PR review findings #3 and #5
+- [x] T018 Add `embedThrowMessage: string | null = null` flag to top-level `ai` mock in `apps/api/src/memory/__tests__/embeddings.test.ts`: when non-null, the `embed` mock throws `new Error(embedThrowMessage)`. Reset to `null` in `beforeEach`. Refactor T014 test ("throws when embed() fails for ollama") to set `embedThrowMessage = 'Connection refused'` and use `await expect(generateEmbedding('test')).rejects.toThrow('Connection refused')`. Remove the inner `mock.module('ai', ...)` re-mock that Bun caching prevents from working — addresses PR review finding #1
+- [x] T019 Add `providerOptions` assertion to the "uses ollama when configured" test: after the existing provider assertion, add `expect(lastEmbedCall?.providerOptions).toEqual({ ollama: { dimensions: 1024 } })` in `apps/api/src/memory/__tests__/embeddings.test.ts` — addresses PR review finding #2
+- [x] T020 Add distinct T015 test for model-not-available scenario: add new test "throws when ollama model is not available" using the `embedThrowMessage` flag from T018 — set `embedThrowMessage = 'model "foo" not found, try pulling it first'` and assert `await expect(generateEmbedding('test')).rejects.toThrow('model')` in `apps/api/src/memory/__tests__/embeddings.test.ts` — depends on T018 — addresses PR review finding #4
+
+### Should Fix (documentation)
+
+- [x] T021 [P] Deduplicate `CLAUDE.md` Recent Changes: keep single entry for `20260406-221125-ollama-embedding-provider`, restore the `20260406-201317-sandbox-env-allowlist` entry that was removed in `CLAUDE.md` — addresses PR review finding #6
+- [x] T022 [P] Update quickstart snippet to include `providerOptions: { ollama: { dimensions: 1024 } }` in the `embed()` call example in `specs/20260406-221125-ollama-embedding-provider/quickstart.md` — addresses PR review finding #7
+- [x] T023 [P] Consolidate research R5 decision: replace contradictory "Decision" + "Final decision revised" with single clear decision statement ("Use existing `EMBEDDING_MODEL` env var — do NOT add `OLLAMA_EMBEDDING_MODEL`") in `specs/20260406-221125-ollama-embedding-provider/research.md` — addresses PR review finding #8
+
+### Low Priority (consistency)
+
+- [x] T024 [P] ~~Hoist `createOllama()` to module-level cached instance~~ — **SKIPPED**: hoisting breaks test isolation because `config.OLLAMA_BASE_URL` is read at module init time via the Proxy mock, before per-test `mockConfigValues` are set. The per-call pattern is correct for testability. — addresses PR review finding #9
+
+**Checkpoint**: All PR review findings addressed.
+
+---
+
+## Phase 7: Polish & Cross-Cutting Concerns
+
+**Purpose**: Final validation and quality gate
+
+- [x] T025 Run full `bun run check` — typecheck, lint, and all tests must pass
+- [ ] T026 Run quickstart.md validation: verify the documented steps work end-to-end with a running Ollama instance pulling `mxbai-embed-large`
 
 ---
 
@@ -103,38 +126,47 @@
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: No dependencies — can start immediately
-- **Foundational (Phase 2)**: Depends on T001 (type change) — BLOCKS all user stories
-- **User Stories (Phase 3-5)**: All depend on Foundational phase completion
-  - US1, US2, US3 can proceed in priority order (P1 → P2 → P3)
-  - US2 and US3 are lightweight validation phases with minimal code changes
-- **Polish (Phase 6)**: Depends on all user stories being complete
+- **Setup (Phase 1)**: No dependencies — **COMPLETED**
+- **Foundational (Phase 2)**: Depends on T001 — **COMPLETED**
+- **User Stories (Phase 3-5)**: All depend on Phase 2 — **COMPLETED**
+- **PR Review Fixes (Phase 6)**: Depends on all user stories being complete
+  - T018 must complete before T020 (T020 depends on `embedThrowMessage` flag from T018)
+  - T017, T019, T021, T022, T023, T024 are independent of each other and of T018
+- **Polish (Phase 7)**: Depends on Phase 6 completion
 
 ### User Story Dependencies
 
-- **User Story 1 (P1)**: Can start after Foundational (Phase 2) — no dependencies on other stories
-- **User Story 2 (P2)**: Can start after Foundational (Phase 2) — validates search works (no code change expected)
-- **User Story 3 (P3)**: Can start after Foundational (Phase 2) — validates error handling (no code change expected)
+- **User Story 1 (P1)**: COMPLETED
+- **User Story 2 (P2)**: COMPLETED
+- **User Story 3 (P3)**: COMPLETED (with test gaps addressed in Phase 6 via T018, T020)
 
-### Within Each User Story
+### Within Phase 6
 
-- Tests written before verifying implementation behavior
-- Run `bun run check` at each checkpoint
+- T017, T019, T021, T022, T023, T024 can all run in parallel (different files or independent concerns)
+- T018 must complete before T020 (shared mock flag dependency)
 
 ### Parallel Opportunities
 
-- T001 and T002 can run in parallel (different files)
-- T006-T010 are all in the same test file — execute sequentially
-- T017 and T018 can run in parallel (different files)
+- Phase 6 has 6 independent tasks that can run in parallel: T017, T019, T021, T022, T023, T024
+- T018 is a sequential dependency for T020
+- Total: 8 remaining tasks across Phase 6 + Phase 7
 
 ---
 
-## Parallel Example: Phase 1
+## Parallel Example: Phase 6
 
 ```bash
-# Launch setup tasks in parallel (different files):
-Task T001: "Add 'ollama' to EmbeddingProvider type in apps/api/src/memory/embeddings.ts"
-Task T002: "Update .env.example with ollama embedding documentation"
+# Launch independent fixes in parallel (different files):
+Task T017: "Fix .env.example defaults and model tag"
+Task T019: "Add providerOptions assertion to Ollama test"
+Task T021: "Deduplicate CLAUDE.md Recent Changes"
+Task T022: "Update quickstart.md snippet with providerOptions"
+Task T023: "Consolidate research.md R5 decision"
+Task T024: "Hoist createOllama() to module level in embeddings.ts"
+
+# Then sequential test fixes (T020 depends on T018):
+Task T018: "Add embedThrowMessage flag and fix T014 test"
+Task T020: "Add T015 model-not-available test" (after T018)
 ```
 
 ---
@@ -143,19 +175,26 @@ Task T002: "Update .env.example with ollama embedding documentation"
 
 ### MVP First (User Story 1 Only)
 
-1. Complete Phase 1: Setup (T001-T002)
-2. Complete Phase 2: Foundational (T003-T005)
-3. Complete Phase 3: User Story 1 (T006-T011)
-4. **STOP and VALIDATE**: Test `EMBEDDING_PROVIDER=ollama` with a running Ollama instance
-5. Deploy if ready — embeddings work with Ollama
+1. ~~Complete Phase 1: Setup (T001-T002)~~ **DONE**
+2. ~~Complete Phase 2: Foundational (T003-T005)~~ **DONE**
+3. ~~Complete Phase 3: User Story 1 (T006-T011)~~ **DONE**
+4. ~~STOP and VALIDATE~~ **DONE**
+
+### Current: PR Review Fix Phase
+
+5. Complete Phase 6: PR Review Fixes (T017-T024)
+   - Start with parallel tasks: T017, T019, T021, T022, T023, T024
+   - Then T018 (test refactor), then T020 (depends on T018)
+6. Complete Phase 7: Polish (T025-T026)
 
 ### Incremental Delivery
 
-1. Setup + Foundational → Ollama embedding wired
-2. User Story 1 → Test independently → MVP ready
-3. User Story 2 → Validate search works → Confirm compatibility
-4. User Story 3 → Validate degradation → Confirm robustness
-5. Polish → JSDoc, docs, full check
+1. ~~Setup + Foundational → Ollama embedding wired~~ **DONE**
+2. ~~User Story 1 → MVP ready~~ **DONE**
+3. ~~User Story 2 → Confirm compatibility~~ **DONE**
+4. ~~User Story 3 → Confirm robustness~~ **DONE**
+5. PR Review Fixes → Address all 9 findings → Quality gate
+6. Polish → Full check, quickstart validation
 
 ---
 
@@ -166,4 +205,6 @@ Task T002: "Update .env.example with ollama embedding documentation"
 - User Stories 2 and 3 are primarily validation/testing phases — they confirm existing patterns work with the new provider rather than requiring new code
 - No new dependencies needed — `ollama-ai-provider-v2` is already installed
 - No database migrations needed — `vector(1024)` column is provider-agnostic
-- Total estimated scope: ~50-80 lines of production code + ~100-150 lines of tests
+- Phase 6 addresses 9 validated PR review findings (11 comments from Copilot/CodeRabbit: 6 unique + 3 duplicates + 1 partially valid)
+- The most impactful fix is T018 — the current T014 test has zero assertions and always passes due to Bun module caching
+- T015 was incorrectly marked complete in the original tasks — no corresponding test exists in the codebase

@@ -39,6 +39,9 @@ if (provider === 'ollama') {
   const { embedding } = await embed({
     model: ollama.embedding(modelOverride ?? DEFAULT_OLLAMA_EMBEDDING_MODEL),
     value: text,
+    providerOptions: {
+      ollama: { dimensions: EMBEDDING_DIMENSIONS },
+    },
   });
   return embedding;
 }

@@ -48,8 +48,6 @@ textEmbeddingModel(modelId: OllamaEmbeddingModelId, settings?: OllamaEmbeddingSe
 
 ## R5: Configuration approach
 
-**Decision**: Add an optional `OLLAMA_EMBEDDING_MODEL` env var to allow overriding the default embedding model specifically for Ollama, separate from `EMBEDDING_MODEL` (which is the generic override) and `OLLAMA_DEFAULT_MODEL` (which is for LLM).
+**Decision**: Use the existing `EMBEDDING_MODEL` env var for model override — do NOT add a separate `OLLAMA_EMBEDDING_MODEL`.
 
-**Rationale**: The user input specifies "add ollama as additional provider" — this means `EMBEDDING_PROVIDER=ollama` selects Ollama, and `EMBEDDING_MODEL` can override the model (same pattern as OpenAI/Bedrock). An additional `OLLAMA_EMBEDDING_MODEL` env var is unnecessary since `EMBEDDING_MODEL` already serves this purpose. Keep it simple: use the existing `EMBEDDING_MODEL` env var.
-
-**Final decision revised**: Do NOT add `OLLAMA_EMBEDDING_MODEL`. Use the existing `EMBEDDING_MODEL` env var for model override, consistent with how OpenAI and Bedrock work. This is the simplest approach.
+**Rationale**: The user input specifies "add ollama as additional provider" — this means `EMBEDDING_PROVIDER=ollama` selects Ollama, and `EMBEDDING_MODEL` can override the model (same pattern as OpenAI/Bedrock). An additional `OLLAMA_EMBEDDING_MODEL` env var is unnecessary since `EMBEDDING_MODEL` already serves this purpose. This keeps configuration consistent across all providers.

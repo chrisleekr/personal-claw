@@ -4,9 +4,13 @@ let mockEmbeddingResult = [0.1, 0.2, 0.3];
 let mockConfigValues: Record<string, string | undefined> = {};
 let lastEmbedCall: { model: unknown; value: string; providerOptions: unknown } | null = null;
 let lastOllamaBaseURL: string | null = null;
+let embedThrowMessage: string | null = null;
 
 mock.module('ai', () => ({
   embed: async (opts: { model: unknown; value: string; providerOptions?: unknown }) => {
+    if (embedThrowMessage) {
+      throw new Error(embedThrowMessage);
+    }
     lastEmbedCall = {
       model: opts.model,
       value: opts.value,
@@ -65,6 +69,7 @@ describe('generateEmbedding', () => {
     mockConfigValues = {};
     lastEmbedCall = null;
     lastOllamaBaseURL = null;
+    embedThrowMessage = null;
   });
 
   afterEach(() => {
@@ -101,6 +106,7 @@ describe('generateEmbedding', () => {
     mockConfigValues = { EMBEDDING_PROVIDER: 'ollama' };
     await generateEmbedding('test text');
     expect((lastEmbedCall?.model as { provider: string }).provider).toBe('ollama');
+    expect(lastEmbedCall?.providerOptions).toEqual({ ollama: { dimensions: 1024 } });
   });
 
   // T007: calls createOllama with correct base URL
@@ -161,26 +167,15 @@ describe('generateEmbedding', () => {
 
   // T014: throws when ollama unreachable
   test('throws when embed() fails for ollama', async () => {
-    // Override embed to throw for this test
-    const originalResult = mockEmbeddingResult;
-    mock.module('ai', () => ({
-      embed: async () => {
-        throw new Error('Connection refused');
-      },
-      embedMany: async () => ({ embeddings: [originalResult] }),
-      generateText: async () => ({ text: '' }),
-      tool: (def: { description?: string; inputSchema?: unknown; execute?: unknown }) => ({
-        type: 'tool' as const,
-        parameters: def.inputSchema,
-        execute: def.execute,
-        description: def.description,
-      }),
-      stepCountIs: () => () => false,
-    }));
-    // Re-import to pick up new mock — Bun caches, so this test validates the contract
-    // The actual throw behavior is tested via the mock above
+    embedThrowMessage = 'Connection refused';
     mockConfigValues = { EMBEDDING_PROVIDER: 'ollama' };
-    // Note: Due to Bun module caching, this tests the type contract rather than live behavior
-    // The graceful degradation is validated by reviewing longterm.ts (T016)
+    await expect(generateEmbedding('test text')).rejects.toThrow('Connection refused');
+  });
+
+  // T015: throws when ollama model is not available
+  test('throws when ollama model is not available', async () => {
+    embedThrowMessage = 'model "foo" not found, try pulling it first';
+    mockConfigValues = { EMBEDDING_PROVIDER: 'ollama' };
+    await expect(generateEmbedding('test text')).rejects.toThrow('model');
   });
 });
