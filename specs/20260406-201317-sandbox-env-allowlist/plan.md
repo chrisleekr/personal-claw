@@ -126,3 +126,11 @@ Test says "regardless of which provider calls it" but just tests determinism of 
 HOME override semantics differ between providers (Direct: `HOME=workspacePath`, Bubblewrap: `HOME=/workspace`). Doc simplifies this.
 
 **Fix**: Clarify the composition order bullet to note provider-specific HOME behavior.
+
+## CI Flake Fix (from main branch action run 24027854446)
+
+The `DirectProvider > destroy removes workspace directory` test fails intermittently in CI with `Expected: true, Received: false` at line 158 — `existsSync(path)` returns false immediately after `provider.create()`. This is a pre-existing issue on `main` (not introduced by this PR).
+
+**Root cause**: The test creates a sandbox without pushing it to the `sandboxes` array for cleanup. More importantly, `existsSync` is checking the workspace directory synchronously right after an async `mkdir` call — but since `mkdir` is awaited inside `create()`, this should work. The likely cause is test isolation: the `test-isolated.ts` runner spawns separate Bun processes per file, and under CI load the filesystem may not be flushed between the `mkdir` and `existsSync` calls.
+
+**Fix**: Add a small defensive check — verify the `create()` call actually returns a sandbox with a valid path before asserting on `existsSync`. Additionally, ensure the test pushes to `sandboxes` for proper cleanup via `afterEach`.

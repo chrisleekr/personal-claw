@@ -170,6 +170,15 @@
 
 ---
 
+## Phase 9: CI Flake Fix (main branch action run 24027854446)
+
+**Purpose**: Fix pre-existing flaky test on main that fails in CI
+
+- [x] T045 Fix `DirectProvider > destroy removes workspace directory` test: wrap in try/catch to ensure cleanup on assertion failure in `apps/api/src/sandbox/__tests__/direct.test.ts`
+- [x] T046 Run `bun run check` to verify fix passes locally
+
+---
+
 ## Dependencies and Execution Order
 
 ### Phase Dependencies

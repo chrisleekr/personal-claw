@@ -154,11 +154,16 @@ describe('DirectProvider', () => {
       config: testConfig,
     });
 
-    const path = sandbox.workspacePath;
-    expect(existsSync(path)).toBe(true);
+    try {
+      const wsPath = sandbox.workspacePath;
+      expect(existsSync(wsPath)).toBe(true);
 
-    await sandbox.destroy();
-    expect(existsSync(path)).toBe(false);
+      await sandbox.destroy();
+      expect(existsSync(wsPath)).toBe(false);
+    } catch (error) {
+      await sandbox.destroy();
+      throw error;
+    }
   });
 
   test('operations after destroy throw', async () => {
