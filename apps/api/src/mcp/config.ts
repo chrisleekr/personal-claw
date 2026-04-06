@@ -144,8 +144,12 @@ export function buildTransport(
 ): { type: 'sse' | 'http'; url: string; headers?: Record<string, string> } | MCPTransport {
   if (config.transportType === 'stdio') {
     validateStdioConfig(config);
+    const command = config.command;
+    if (!command) {
+      throw new Error(`MCP config "${config.serverName}" has stdio transport but no command`);
+    }
     return new StdioMCPTransport({
-      command: config.command!,
+      command,
       ...(config.args ? { args: config.args } : {}),
       ...(config.env ? { env: config.env } : {}),
       ...(config.cwd ? { cwd: config.cwd } : {}),
