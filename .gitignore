@@ -28,3 +28,8 @@ apps/api/data/
 
 # OS
 .DS_Store
+
+# Spec Kit — ephemeral/local artifacts only
+.specify/extensions/.cache/
+.specify/extensions/.backup/
+.specify/extensions/*/local-config.yml

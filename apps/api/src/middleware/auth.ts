@@ -1,5 +1,5 @@
+import { timingSafeEqual } from 'node:crypto';
 import { getLogger } from '@logtape/logtape';
-import { timingSafeEqual } from 'crypto';
 import type { Context, Next } from 'hono';
 import { config } from '../config';
 
