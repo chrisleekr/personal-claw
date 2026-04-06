@@ -92,3 +92,37 @@ The integration smoke test in `direct.test.ts` uses `not.toContain` assertions t
 Four test locations are missing `await` on `expect(...).rejects.toThrow(...)`, which can mask test failures.
 
 **Fix**: Add `await` to all `rejects.toThrow` calls in `direct.test.ts` and `bubblewrap.test.ts`.
+
+## PR Review Comment Fixes (Copilot + CodeRabbit)
+
+Issues validated by `/pr-review-comments` after PR #21 submission:
+
+### Issue R1 (Medium) — CLAUDE.md has wrong project structure, commands, and duplicate entry
+
+Auto-generated `CLAUDE.md` shows `backend/ frontend/ tests/` but actual repo is `apps/api`, `apps/web`, `packages/*`. Commands show `npm test && npm run lint` but repo uses `bun run check`. Recent Changes section has duplicate bullet.
+
+**Fix**: Update CLAUDE.md with correct structure, commands, and remove duplicate.
+
+### Issue R2 (Medium) — Bubblewrap TMPDIR should be overridden to `/tmp`
+
+`buildSandboxEnv()` passes host `TMPDIR` (e.g., `/var/folders/...`) into bwrap, but that path doesn't exist inside the bwrap namespace. Bwrap creates `--tmpfs /tmp` so `/tmp` is the correct sandbox temp path.
+
+**Fix**: Override `mergedEnv.TMPDIR = '/tmp'` alongside the existing `HOME`/`PATH` deletions in `buildBwrapArgs()`.
+
+### Issue R3 (Low) — bubblewrap.test.ts:72-94 GH_TOKEN mutation not in try/finally
+
+Pre-existing test mutates `Bun.env.GH_TOKEN` without try/finally. If assertion throws, env stays polluted. Other new tests in this PR correctly use try/finally.
+
+**Fix**: Wrap in try/finally matching the pattern used by other tests.
+
+### Issue R4 (Low) — SC-004 parity test name is misleading
+
+Test says "regardless of which provider calls it" but just tests determinism of two identical calls. The test is valid (same inputs = same outputs proves parity since both providers use the same function), but the name should reflect what it actually tests.
+
+**Fix**: Rename to "produces deterministic output for identical inputs".
+
+### Issue R5 (Low) — data-model.md HOME override wording
+
+HOME override semantics differ between providers (Direct: `HOME=workspacePath`, Bubblewrap: `HOME=/workspace`). Doc simplifies this.
+
+**Fix**: Clarify the composition order bullet to note provider-specific HOME behavior.

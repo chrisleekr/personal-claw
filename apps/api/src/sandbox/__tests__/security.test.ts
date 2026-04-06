@@ -237,8 +237,8 @@ describe('validateGitTokenEnvVar', () => {
   });
 });
 
-describe('buildSandboxEnv parity', () => {
-  test('produces identical output regardless of calling context (SC-004)', () => {
+describe('buildSandboxEnv determinism', () => {
+  test('produces deterministic output for identical inputs (SC-004)', () => {
     const envA = buildSandboxEnv({ GH_TOKEN: 'token123' }, { CUSTOM: 'val' });
     const envB = buildSandboxEnv({ GH_TOKEN: 'token123' }, { CUSTOM: 'val' });
     expect(envA).toEqual(envB);

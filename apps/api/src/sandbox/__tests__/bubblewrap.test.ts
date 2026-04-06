@@ -72,24 +72,26 @@ describe('BubblewrapProvider', () => {
     const originalEnv = Bun.env.GH_TOKEN;
     Bun.env.GH_TOKEN = 'ghp_fake_token';
 
-    const configWithGit: SandboxConfig = {
-      ...testConfig,
-      gitTokenEnvVar: 'GH_TOKEN',
-    };
+    try {
+      const configWithGit: SandboxConfig = {
+        ...testConfig,
+        gitTokenEnvVar: 'GH_TOKEN',
+      };
 
-    const sandbox = await provider.create({
-      channelId: 'ch-git',
-      threadId: 'th-git',
-      config: configWithGit,
-    });
+      const sandbox = await provider.create({
+        channelId: 'ch-git',
+        threadId: 'th-git',
+        config: configWithGit,
+      });
 
-    expect(sandbox).toBeDefined();
-    await sandbox.destroy();
-
-    if (originalEnv === undefined) {
-      delete Bun.env.GH_TOKEN;
-    } else {
-      Bun.env.GH_TOKEN = originalEnv;
+      expect(sandbox).toBeDefined();
+      await sandbox.destroy();
+    } finally {
+      if (originalEnv === undefined) {
+        delete Bun.env.GH_TOKEN;
+      } else {
+        Bun.env.GH_TOKEN = originalEnv;
+      }
     }
   });
 

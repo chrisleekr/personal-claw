@@ -35,7 +35,7 @@ The environment object passed to `Bun.spawn()` or bwrap `--setenv` args. Compose
 1. Allowlisted host variables (from `SAFE_ENV_VARS`, read from `Bun.env`)
 2. Provider-configured variables (`envVars` from `create()`)
 3. Caller-provided variables (`options.env` from the caller)
-4. Sandbox-specific overrides (`HOME` set to workspace path)
+4. Sandbox-specific overrides (provider-dependent: DirectSandbox sets `HOME` to the host workspace path; BubblewrapSandbox hardcodes `HOME=/workspace`, `PATH` to a safe default, and `TMPDIR=/tmp`)
 
 ## Relationships
 

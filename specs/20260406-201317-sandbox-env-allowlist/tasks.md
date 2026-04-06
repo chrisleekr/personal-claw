@@ -147,6 +147,29 @@
 
 ---
 
+## Phase 8: PR Review Comment Fixes (Copilot + CodeRabbit)
+
+**Purpose**: Address valid review comments from PR #21
+
+### Medium Priority
+
+- [x] T037 Fix CLAUDE.md project structure: replace `backend/ frontend/ tests/` with `apps/api`, `apps/web`, `packages/db`, `packages/shared` in `CLAUDE.md`
+- [x] T038 Fix CLAUDE.md commands: replace `npm test && npm run lint` with `bun run check` in `CLAUDE.md`
+- [x] T039 Fix CLAUDE.md duplicate: remove duplicate Recent Changes entry in `CLAUDE.md`
+- [x] T040 Override TMPDIR to `/tmp` in bwrap merged env alongside HOME/PATH deletions in `apps/api/src/sandbox/bubblewrap.ts:buildBwrapArgs()`
+
+### Low Priority
+
+- [x] T041 Wrap GH_TOKEN mutation in try/finally in `apps/api/src/sandbox/__tests__/bubblewrap.test.ts` (lines 72-94)
+- [x] T042 Rename SC-004 parity test to "produces deterministic output for identical inputs" in `apps/api/src/sandbox/__tests__/security.test.ts`
+- [x] T043 Clarify HOME override wording in `specs/20260406-201317-sandbox-env-allowlist/data-model.md` composition order
+
+### Validation
+
+- [x] T044 Run `bun run check` to verify all fixes pass typecheck + lint + test
+
+---
+
 ## Dependencies and Execution Order
 
 ### Phase Dependencies

@@ -214,6 +214,7 @@ class BubblewrapSandbox implements Sandbox {
     const mergedEnv = buildSandboxEnv(this.envVars, extraEnv);
     delete mergedEnv.HOME;
     delete mergedEnv.PATH;
+    mergedEnv.TMPDIR = '/tmp';
     for (const [key, value] of Object.entries(mergedEnv)) {
       args.push('--setenv', key, value);
     }
