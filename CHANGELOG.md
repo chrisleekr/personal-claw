@@ -1,3 +1,15 @@
+# [1.1.0](https://github.com/chrisleekr/personal-claw/compare/v1.0.2...v1.1.0) (2026-04-06)
+
+
+### Bug Fixes
+
+* **sandbox:** prevent host env var leakage in sandbox execution ([#21](https://github.com/chrisleekr/personal-claw/issues/21)) ([89f4822](https://github.com/chrisleekr/personal-claw/commit/89f4822b87f4f10ac294ca1a4397d41fa052d270))
+
+
+### Features
+
+* setup SpecKit integration and improve code quality ([#20](https://github.com/chrisleekr/personal-claw/issues/20)) ([6b10b8a](https://github.com/chrisleekr/personal-claw/commit/6b10b8ac13e9ad8ce9c3d4fb5ec0fed9e16a42bc))
+
 ## [1.0.2](https://github.com/chrisleekr/personal-claw/compare/v1.0.1...v1.0.2) (2026-04-03)
 
 
