@@ -8,11 +8,11 @@ services:
       POSTGRES_USER: claw
       POSTGRES_PASSWORD: claw_dev
     ports:
-      - "5432:5432"
+      - "25432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U claw -d personalclaw"]
+      test: [ "CMD-SHELL", "pg_isready -U claw -d personalclaw" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -22,13 +22,12 @@ services:
     image: valkey/valkey:8.1-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "26379:6379"
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test: [ "CMD", "valkey-cli", "ping" ]
       interval: 5s
       timeout: 5s
       retries: 5
-
   # api:
   #   build:
   #     context: .
