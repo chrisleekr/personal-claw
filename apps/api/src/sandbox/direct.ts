@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { getLogger } from '@logtape/logtape';
 import type { SandboxConfig } from '@personalclaw/shared';
-import { SandboxCommandValidator, validateSandboxPath } from './security';
+import {
+  buildSandboxEnv,
+  SandboxCommandValidator,
+  validateGitTokenEnvVar,
+  validateSandboxPath,
+} from './security';
 import type {
   CreateSandboxOptions,
   ExecOptions,
@@ -60,10 +65,8 @@ class DirectSandbox implements Sandbox {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-    const env: Record<string, string | undefined> = {
-      ...Bun.env,
-      ...this.envVars,
-      ...options?.env,
+    const env: Record<string, string> = {
+      ...buildSandboxEnv(this.envVars, options?.env),
       HOME: this.workspacePath,
     };
 
@@ -206,6 +209,8 @@ export class DirectProvider implements SandboxProvider {
   readonly name = 'direct';
 
   async create(options: CreateSandboxOptions): Promise<Sandbox> {
+    validateGitTokenEnvVar(options.config.gitTokenEnvVar);
+
     const sandboxId = `${options.channelId}-${options.threadId}-${Date.now()}`;
     const workspacePath = join(tmpdir(), 'personalclaw-sandbox', sandboxId, 'workspace');
     await mkdir(workspacePath, { recursive: true });

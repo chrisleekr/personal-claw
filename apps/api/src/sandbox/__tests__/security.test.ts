@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import type { SandboxConfig } from '@personalclaw/shared';
-import { SandboxCommandValidator, validateSandboxPath } from '../security';
+import {
+  buildSandboxEnv,
+  SAFE_ENV_VARS,
+  SandboxCommandValidator,
+  validateGitTokenEnvVar,
+  validateSandboxPath,
+} from '../security';
 
 const baseConfig: SandboxConfig = {
   allowedCommands: ['bash', 'sh', 'git', 'ls', 'cat', 'echo', 'python3', 'node'],
@@ -146,5 +152,95 @@ describe('validateSandboxPath', () => {
 
   test('allows current directory references', () => {
     expect(validateSandboxPath('./file.txt', workspace)).toEqual({ valid: true });
+  });
+});
+
+describe('buildSandboxEnv', () => {
+  test('returns only allowlisted host vars when no extras provided', () => {
+    const env = buildSandboxEnv();
+    const keys = Object.keys(env);
+    for (const key of keys) {
+      expect(SAFE_ENV_VARS).toContain(key);
+    }
+  });
+
+  test('includes provider envVars and caller options.env alongside allowlisted vars', () => {
+    const env = buildSandboxEnv({ PROVIDER_VAR: 'prov' }, { CALLER_VAR: 'call' });
+    expect(env.PROVIDER_VAR).toBe('prov');
+    expect(env.CALLER_VAR).toBe('call');
+  });
+
+  test('allows options.env to override allowlisted values', () => {
+    const env = buildSandboxEnv(undefined, { PATH: '/custom/path' });
+    expect(env.PATH).toBe('/custom/path');
+  });
+
+  test('excludes sensitive vars even when set on host', () => {
+    const originalDb = Bun.env.DATABASE_URL;
+    const originalOpenai = Bun.env.OPENAI_API_KEY;
+    const originalAws = Bun.env.AWS_SECRET_ACCESS_KEY;
+    Bun.env.DATABASE_URL = 'postgres://secret';
+    Bun.env.OPENAI_API_KEY = 'sk-secret';
+    Bun.env.AWS_SECRET_ACCESS_KEY = 'aws-secret';
+
+    try {
+      const env = buildSandboxEnv();
+      expect(env.DATABASE_URL).toBeUndefined();
+      expect(env.OPENAI_API_KEY).toBeUndefined();
+      expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    } finally {
+      if (originalDb === undefined) delete Bun.env.DATABASE_URL;
+      else Bun.env.DATABASE_URL = originalDb;
+      if (originalOpenai === undefined) delete Bun.env.OPENAI_API_KEY;
+      else Bun.env.OPENAI_API_KEY = originalOpenai;
+      if (originalAws === undefined) delete Bun.env.AWS_SECRET_ACCESS_KEY;
+      else Bun.env.AWS_SECRET_ACCESS_KEY = originalAws;
+    }
+  });
+
+  test('handles missing allowlisted vars gracefully', () => {
+    const originalLang = Bun.env.LANG;
+    delete Bun.env.LANG;
+
+    try {
+      const env = buildSandboxEnv();
+      expect(env.LANG).toBeUndefined();
+    } finally {
+      if (originalLang !== undefined) Bun.env.LANG = originalLang;
+    }
+  });
+
+  test('allows provider envVars to override allowlisted values when they collide', () => {
+    const env = buildSandboxEnv({ PATH: '/provider/path' });
+    expect(env.PATH).toBe('/provider/path');
+  });
+});
+
+describe('validateGitTokenEnvVar', () => {
+  test('accepts allowed token variable names', () => {
+    expect(() => validateGitTokenEnvVar('GH_TOKEN')).not.toThrow();
+    expect(() => validateGitTokenEnvVar('GITHUB_TOKEN')).not.toThrow();
+    expect(() => validateGitTokenEnvVar('GIT_TOKEN')).not.toThrow();
+    expect(() => validateGitTokenEnvVar('GITLAB_TOKEN')).not.toThrow();
+  });
+
+  test('throws for disallowed variable names', () => {
+    expect(() => validateGitTokenEnvVar('DATABASE_URL')).toThrow('not allowed');
+    expect(() => validateGitTokenEnvVar('AWS_SECRET_ACCESS_KEY')).toThrow('not allowed');
+    expect(() => validateGitTokenEnvVar('SOME_RANDOM_VAR')).toThrow('not allowed');
+  });
+
+  test('accepts null and empty string as no-op', () => {
+    expect(() => validateGitTokenEnvVar(null)).not.toThrow();
+    expect(() => validateGitTokenEnvVar('')).not.toThrow();
+    expect(() => validateGitTokenEnvVar(undefined)).not.toThrow();
+  });
+});
+
+describe('buildSandboxEnv parity', () => {
+  test('produces identical output regardless of calling context (SC-004)', () => {
+    const envA = buildSandboxEnv({ GH_TOKEN: 'token123' }, { CUSTOM: 'val' });
+    const envB = buildSandboxEnv({ GH_TOKEN: 'token123' }, { CUSTOM: 'val' });
+    expect(envA).toEqual(envB);
   });
 });

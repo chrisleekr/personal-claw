@@ -69,12 +69,12 @@ describe('BubblewrapProvider', () => {
   });
 
   test('create with gitTokenEnvVar sets GH_TOKEN and GITHUB_TOKEN', async () => {
-    const originalEnv = Bun.env.TEST_GIT_TOKEN;
-    Bun.env.TEST_GIT_TOKEN = 'ghp_fake_token';
+    const originalEnv = Bun.env.GH_TOKEN;
+    Bun.env.GH_TOKEN = 'ghp_fake_token';
 
     const configWithGit: SandboxConfig = {
       ...testConfig,
-      gitTokenEnvVar: 'TEST_GIT_TOKEN',
+      gitTokenEnvVar: 'GH_TOKEN',
     };
 
     const sandbox = await provider.create({
@@ -87,14 +87,53 @@ describe('BubblewrapProvider', () => {
     await sandbox.destroy();
 
     if (originalEnv === undefined) {
-      delete Bun.env.TEST_GIT_TOKEN;
+      delete Bun.env.GH_TOKEN;
     } else {
-      Bun.env.TEST_GIT_TOKEN = originalEnv;
+      Bun.env.GH_TOKEN = originalEnv;
+    }
+  });
+
+  test('create throws when gitTokenEnvVar is disallowed', async () => {
+    const configWithBadToken: SandboxConfig = {
+      ...testConfig,
+      gitTokenEnvVar: 'DATABASE_URL',
+    };
+
+    await expect(
+      provider.create({
+        channelId: 'ch-bad-token',
+        threadId: 'th-bad-token',
+        config: configWithBadToken,
+      }),
+    ).rejects.toThrow('not allowed');
+  });
+
+  test('create succeeds when gitTokenEnvVar is GH_TOKEN', async () => {
+    const originalToken = Bun.env.GH_TOKEN;
+    Bun.env.GH_TOKEN = 'ghp_test_token';
+
+    try {
+      const configWithGhToken: SandboxConfig = {
+        ...testConfig,
+        gitTokenEnvVar: 'GH_TOKEN',
+      };
+
+      const sandbox = await provider.create({
+        channelId: 'ch-gh-ok',
+        threadId: 'th-gh-ok',
+        config: configWithGhToken,
+      });
+
+      expect(sandbox).toBeDefined();
+      await sandbox.destroy();
+    } finally {
+      if (originalToken === undefined) delete Bun.env.GH_TOKEN;
+      else Bun.env.GH_TOKEN = originalToken;
     }
   });
 });
 
-describe('BubblewrapSandbox', () => {
+describe.skipIf(process.platform !== 'linux')('BubblewrapSandbox', () => {
   const provider = new BubblewrapProvider();
   const sandboxes: Array<{ destroy(): Promise<void> }> = [];
 
