@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/chrisleekr/personal-claw/compare/v1.1.0...v1.2.0) (2026-04-06)
+
+
+### Features
+
+* **memory:** add Ollama as embedding provider ([#22](https://github.com/chrisleekr/personal-claw/issues/22)) ([886e982](https://github.com/chrisleekr/personal-claw/commit/886e98268ffac4391bae54184c06b77c9938c8a1))
+
 # [1.1.0](https://github.com/chrisleekr/personal-claw/compare/v1.0.2...v1.1.0) (2026-04-06)
 
 
