@@ -1,5 +1,78 @@
 import { normalize, resolve } from 'node:path';
+import { getLogger } from '@logtape/logtape';
 import type { SandboxConfig } from '@personalclaw/shared';
+
+const logger = getLogger(['personalclaw', 'sandbox', 'security']);
+
+/**
+ * Hardcoded set of host environment variable names safe to pass into sandboxed processes.
+ * These are operational variables needed for basic command execution — not application secrets.
+ * Not configurable; callers use `options.env` for additional variables.
+ */
+export const SAFE_ENV_VARS: readonly string[] = [
+  'PATH',
+  'HOME',
+  'LANG',
+  'TERM',
+  'USER',
+  'SHELL',
+  'TMPDIR',
+] as const;
+
+/**
+ * Regex matching the only environment variable names that `gitTokenEnvVar` is allowed to reference.
+ * Restricts to well-known git hosting token variable names to prevent arbitrary host env var reads.
+ */
+export const ALLOWED_GIT_TOKEN_VARS = /^(GH_TOKEN|GITHUB_TOKEN|GIT_TOKEN|GITLAB_TOKEN)$/;
+
+/**
+ * Validates that `gitTokenEnvVar` references a known git token variable name.
+ * Throws an error (fail-closed) for disallowed names. Accepts `null`, `undefined`, or empty string as no-op.
+ * @param gitTokenEnvVar - The variable name from SandboxConfig to validate
+ * @throws {Error} If the variable name is not in the allowed set
+ */
+export function validateGitTokenEnvVar(gitTokenEnvVar: string | null | undefined): void {
+  if (!gitTokenEnvVar) return;
+
+  if (!ALLOWED_GIT_TOKEN_VARS.test(gitTokenEnvVar)) {
+    logger.warn('Rejected disallowed gitTokenEnvVar', { gitTokenEnvVar });
+    throw new Error(
+      `gitTokenEnvVar "${gitTokenEnvVar}" is not allowed. ` +
+        'Must be one of: GH_TOKEN, GITHUB_TOKEN, GIT_TOKEN, GITLAB_TOKEN',
+    );
+  }
+}
+
+/**
+ * Builds a sandbox environment by composing allowlisted host variables with explicitly configured variables.
+ * Precedence (later overrides earlier): allowlisted host vars < provider envVars < caller options.env.
+ * @param envVars - Provider-configured environment variables
+ * @param optionsEnv - Caller-provided environment variables (from exec options)
+ * @returns The composed environment record for the sandboxed process
+ */
+export function buildSandboxEnv(
+  envVars?: Record<string, string>,
+  optionsEnv?: Record<string, string>,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+
+  for (const key of SAFE_ENV_VARS) {
+    const value = Bun.env[key];
+    if (value !== undefined) {
+      env[key] = value;
+    }
+  }
+
+  if (envVars) {
+    Object.assign(env, envVars);
+  }
+
+  if (optionsEnv) {
+    Object.assign(env, optionsEnv);
+  }
+
+  return env;
+}
 
 type ValidationResult = { valid: true } | { valid: false; reason: string };
 

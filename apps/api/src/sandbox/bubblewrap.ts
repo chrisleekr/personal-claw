@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { getLogger } from '@logtape/logtape';
 import type { SandboxConfig } from '@personalclaw/shared';
-import { SandboxCommandValidator, validateSandboxPath } from './security';
+import {
+  buildSandboxEnv,
+  SandboxCommandValidator,
+  validateGitTokenEnvVar,
+  validateSandboxPath,
+} from './security';
 import type {
   CreateSandboxOptions,
   ExecOptions,
@@ -206,7 +211,10 @@ class BubblewrapSandbox implements Sandbox {
       '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     );
 
-    const mergedEnv = { ...this.envVars, ...extraEnv };
+    const mergedEnv = buildSandboxEnv(this.envVars, extraEnv);
+    delete mergedEnv.HOME;
+    delete mergedEnv.PATH;
+    mergedEnv.TMPDIR = '/tmp';
     for (const [key, value] of Object.entries(mergedEnv)) {
       args.push('--setenv', key, value);
     }
@@ -258,6 +266,8 @@ export class BubblewrapProvider implements SandboxProvider {
   readonly name = 'bubblewrap';
 
   async create(options: CreateSandboxOptions): Promise<Sandbox> {
+    validateGitTokenEnvVar(options.config.gitTokenEnvVar);
+
     const sandboxId = `${options.channelId}-${options.threadId}-${Date.now()}`;
     const workspacePath = join(tmpdir(), 'personalclaw-sandbox', sandboxId, 'workspace');
     await mkdir(workspacePath, { recursive: true });

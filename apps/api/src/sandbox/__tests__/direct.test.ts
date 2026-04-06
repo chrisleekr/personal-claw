@@ -154,11 +154,16 @@ describe('DirectProvider', () => {
       config: testConfig,
     });
 
-    const path = sandbox.workspacePath;
-    expect(existsSync(path)).toBe(true);
+    try {
+      const wsPath = sandbox.workspacePath;
+      expect(existsSync(wsPath)).toBe(true);
 
-    await sandbox.destroy();
-    expect(existsSync(path)).toBe(false);
+      await sandbox.destroy();
+      expect(existsSync(wsPath)).toBe(false);
+    } catch (error) {
+      await sandbox.destroy();
+      throw error;
+    }
   });
 
   test('operations after destroy throw', async () => {
@@ -170,5 +175,72 @@ describe('DirectProvider', () => {
 
     await sandbox.destroy();
     expect(sandbox.exec('echo hi')).rejects.toThrow('destroyed');
+  });
+
+  test('sandbox does not leak sensitive host env vars', async () => {
+    const originalDb = Bun.env.DATABASE_URL;
+    const originalOpenai = Bun.env.OPENAI_API_KEY;
+    Bun.env.DATABASE_URL = 'postgres://leak-test';
+    Bun.env.OPENAI_API_KEY = 'sk-leak-test';
+
+    try {
+      const sandbox = await provider.create({
+        channelId: 'ch-leak',
+        threadId: 'th-leak',
+        config: testConfig,
+      });
+      sandboxes.push(sandbox);
+
+      const result = await sandbox.exec('sh -c env');
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).not.toContain('DATABASE_URL');
+      expect(result.stdout).not.toContain('OPENAI_API_KEY');
+      expect(result.stdout).not.toContain('postgres://leak-test');
+      expect(result.stdout).not.toContain('sk-leak-test');
+    } finally {
+      if (originalDb === undefined) delete Bun.env.DATABASE_URL;
+      else Bun.env.DATABASE_URL = originalDb;
+      if (originalOpenai === undefined) delete Bun.env.OPENAI_API_KEY;
+      else Bun.env.OPENAI_API_KEY = originalOpenai;
+    }
+  });
+
+  test('create throws when gitTokenEnvVar is disallowed', async () => {
+    const configWithBadToken: SandboxConfig = {
+      ...testConfig,
+      gitTokenEnvVar: 'DATABASE_URL',
+    };
+
+    await expect(
+      provider.create({
+        channelId: 'ch-bad-token',
+        threadId: 'th-bad-token',
+        config: configWithBadToken,
+      }),
+    ).rejects.toThrow('not allowed');
+  });
+
+  test('create succeeds when gitTokenEnvVar is GH_TOKEN', async () => {
+    const originalToken = Bun.env.GH_TOKEN;
+    Bun.env.GH_TOKEN = 'ghp_test_token';
+
+    try {
+      const configWithGhToken: SandboxConfig = {
+        ...testConfig,
+        gitTokenEnvVar: 'GH_TOKEN',
+      };
+
+      const sandbox = await provider.create({
+        channelId: 'ch-gh-token',
+        threadId: 'th-gh-token',
+        config: configWithGhToken,
+      });
+      sandboxes.push(sandbox);
+
+      expect(sandbox).toBeDefined();
+    } finally {
+      if (originalToken === undefined) delete Bun.env.GH_TOKEN;
+      else Bun.env.GH_TOKEN = originalToken;
+    }
   });
 });

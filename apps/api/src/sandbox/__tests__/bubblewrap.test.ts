@@ -69,32 +69,73 @@ describe('BubblewrapProvider', () => {
   });
 
   test('create with gitTokenEnvVar sets GH_TOKEN and GITHUB_TOKEN', async () => {
-    const originalEnv = Bun.env.TEST_GIT_TOKEN;
-    Bun.env.TEST_GIT_TOKEN = 'ghp_fake_token';
+    const originalEnv = Bun.env.GH_TOKEN;
+    Bun.env.GH_TOKEN = 'ghp_fake_token';
 
-    const configWithGit: SandboxConfig = {
+    try {
+      const configWithGit: SandboxConfig = {
+        ...testConfig,
+        gitTokenEnvVar: 'GH_TOKEN',
+      };
+
+      const sandbox = await provider.create({
+        channelId: 'ch-git',
+        threadId: 'th-git',
+        config: configWithGit,
+      });
+
+      expect(sandbox).toBeDefined();
+      await sandbox.destroy();
+    } finally {
+      if (originalEnv === undefined) {
+        delete Bun.env.GH_TOKEN;
+      } else {
+        Bun.env.GH_TOKEN = originalEnv;
+      }
+    }
+  });
+
+  test('create throws when gitTokenEnvVar is disallowed', async () => {
+    const configWithBadToken: SandboxConfig = {
       ...testConfig,
-      gitTokenEnvVar: 'TEST_GIT_TOKEN',
+      gitTokenEnvVar: 'DATABASE_URL',
     };
 
-    const sandbox = await provider.create({
-      channelId: 'ch-git',
-      threadId: 'th-git',
-      config: configWithGit,
-    });
+    await expect(
+      provider.create({
+        channelId: 'ch-bad-token',
+        threadId: 'th-bad-token',
+        config: configWithBadToken,
+      }),
+    ).rejects.toThrow('not allowed');
+  });
 
-    expect(sandbox).toBeDefined();
-    await sandbox.destroy();
+  test('create succeeds when gitTokenEnvVar is GH_TOKEN', async () => {
+    const originalToken = Bun.env.GH_TOKEN;
+    Bun.env.GH_TOKEN = 'ghp_test_token';
 
-    if (originalEnv === undefined) {
-      delete Bun.env.TEST_GIT_TOKEN;
-    } else {
-      Bun.env.TEST_GIT_TOKEN = originalEnv;
+    try {
+      const configWithGhToken: SandboxConfig = {
+        ...testConfig,
+        gitTokenEnvVar: 'GH_TOKEN',
+      };
+
+      const sandbox = await provider.create({
+        channelId: 'ch-gh-ok',
+        threadId: 'th-gh-ok',
+        config: configWithGhToken,
+      });
+
+      expect(sandbox).toBeDefined();
+      await sandbox.destroy();
+    } finally {
+      if (originalToken === undefined) delete Bun.env.GH_TOKEN;
+      else Bun.env.GH_TOKEN = originalToken;
     }
   });
 });
 
-describe('BubblewrapSandbox', () => {
+describe.skipIf(process.platform !== 'linux')('BubblewrapSandbox', () => {
   const provider = new BubblewrapProvider();
   const sandboxes: Array<{ destroy(): Promise<void> }> = [];
 
