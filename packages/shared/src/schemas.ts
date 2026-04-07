@@ -46,11 +46,11 @@ export const sandboxConfigSchema = z.object({
   allowedCommands: z
     .array(z.string().min(1))
     .default([
-      'bash',
-      'sh',
       'git',
       'node',
+      'npx',
       'bun',
+      'bunx',
       'python3',
       'pip',
       'aws',
@@ -64,13 +64,49 @@ export const sandboxConfigSchema = z.object({
       'head',
       'tail',
       'wc',
+      'sort',
+      'uniq',
       'mkdir',
       'cp',
       'mv',
       'touch',
       'echo',
     ]),
-  deniedPatterns: z.array(z.string()).default(['rm -rf /', 'mkfs', 'dd if=']),
+  deniedPatterns: z
+    .array(z.string())
+    .default(['\\brm\\s+(-\\w+\\s+)*\\/', '\\bmkfs\\b', '\\bdd\\b.*\\bif='])
+    .refine(
+      (patterns) => {
+        // Reject patterns with nested quantifiers on capturing/non-capturing groups
+        // that cause catastrophic backtracking (ReDoS).
+        // Catches: (a+)+, (x+)*, (.*)+, (\w+)+ but NOT (-[a-z]*foo\s+)* (single quantifier on group).
+        // The key indicator is a quantifier (+, *) applied to a group that itself
+        // contains a quantifier (+, *) applied to a group (not just a character class).
+        const groupWithQuantifiedGroup = /\([^)]*\([^)]*\)[+*][^)]*\)[+*]/;
+        // Simple repeating groups: (a+)+  where the group content ends with +/*
+        const simpleNestedQuantifier = /\([\w.\\]+[+*]\)[+*]/;
+        // Character class with quantifier in a quantified group: ([a-z]+)+, ([\w]+)*
+        const classQuantifiedGroup = /\(\[[^\]]*\][+*]\)[+*]/;
+        for (const p of patterns) {
+          try {
+            new RegExp(p);
+          } catch {
+            return false;
+          }
+          if (
+            groupWithQuantifiedGroup.test(p) ||
+            simpleNestedQuantifier.test(p) ||
+            classQuantifiedGroup.test(p)
+          )
+            return false;
+        }
+        return true;
+      },
+      {
+        message:
+          'One or more deniedPatterns contain invalid or potentially unsafe regex (ReDoS risk)',
+      },
+    ),
   maxExecutionTimeS: z.number().int().min(1).max(300).default(60),
   maxWorkspaceSizeMb: z.number().int().min(1).max(2048).default(256),
   networkAccess: z.boolean().default(true),

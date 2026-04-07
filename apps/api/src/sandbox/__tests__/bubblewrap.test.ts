@@ -9,8 +9,8 @@ mock.module('../../utils/error-fmt', () => ({
 import { BubblewrapProvider } from '../bubblewrap';
 
 const testConfig: SandboxConfig = {
-  allowedCommands: ['bash', 'sh', 'echo', 'cat', 'ls', 'mkdir', 'touch', 'git'],
-  deniedPatterns: ['rm -rf /'],
+  allowedCommands: ['echo', 'cat', 'ls', 'mkdir', 'touch', 'git'],
+  deniedPatterns: ['\\brm\\s+(-[a-z]*[rf][a-z]*\\s+)*\\/'],
   maxExecutionTimeS: 10,
   maxWorkspaceSizeMb: 64,
   networkAccess: true,
