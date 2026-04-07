@@ -86,12 +86,12 @@
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] Replace boolean `planApproved` field with `planApprovalState: PlanApprovalState | null` in the `ApprovalGateway` class in `apps/api/src/agent/approval-gateway.ts`
-- [ ] T016 [US2] Add a `toolNames` field (array of strings) to the `confirm_plan` input schema in `apps/api/src/agent/approval-gateway.ts` alongside the existing `summary` and `steps` fields — the LLM must explicitly declare which tools it intends to use
-- [ ] T017 [US2] Update `getConfirmPlanTool()` in `apps/api/src/agent/approval-gateway.ts` to read `toolNames` from the input, read `approval_timeout_ms` from the channel config, and construct a `PlanApprovalState` object with `approvedToolNames: new Set(toolNames)`, `approvedAt: Date.now()`, and `timeoutMs`
-- [ ] T018 [US2] Update `checkApproval()` in `apps/api/src/agent/approval-gateway.ts` — replace the `if (this.planApproved)` block (currently at ~line 230) with: check `planApprovalState` is not null, check `Date.now() - approvedAt < timeoutMs`, check `approvedToolNames.has(toolName)`. If any check fails, fall through to the next approval mechanism.
-- [ ] T019 [US2] Add LogTape logging for plan approval timeout and out-of-scope tool events in `apps/api/src/agent/approval-gateway.ts` using category `['personalclaw', 'agent', 'approval']`
-- [ ] T020 [US2] Expose `approvalTimeoutMs` in the channel update route in `apps/api/src/routes/channels.ts` — add to the update schema and handler so channel admins can configure the timeout via the API
+- [x] T015 [US2] Replace boolean `planApproved` field with `planApprovalState: PlanApprovalState | null` in the `ApprovalGateway` class in `apps/api/src/agent/approval-gateway.ts`
+- [x] T016 [US2] Add a `toolNames` field (array of strings) to the `confirm_plan` input schema in `apps/api/src/agent/approval-gateway.ts` alongside the existing `summary` and `steps` fields — the LLM must explicitly declare which tools it intends to use
+- [x] T017 [US2] Update `getConfirmPlanTool()` in `apps/api/src/agent/approval-gateway.ts` to read `toolNames` from the input, read `approval_timeout_ms` from the channel config, and construct a `PlanApprovalState` object with `approvedToolNames: new Set(toolNames)`, `approvedAt: Date.now()`, and `timeoutMs`
+- [x] T018 [US2] Update `checkApproval()` in `apps/api/src/agent/approval-gateway.ts` — replace the `if (this.planApproved)` block (currently at ~line 230) with: check `planApprovalState` is not null, check `Date.now() - approvedAt < timeoutMs`, check `approvedToolNames.has(toolName)`. If any check fails, fall through to the next approval mechanism.
+- [x] T019 [US2] Add LogTape logging for plan approval timeout and out-of-scope tool events in `apps/api/src/agent/approval-gateway.ts` using category `['personalclaw', 'agent', 'approval']`
+- [x] T020 [US2] Expose `approvalTimeoutMs` in the channel update route in `apps/api/src/routes/channels.ts` — already handled: updateChannelSchema includes approvalTimeoutMs, channel.service.ts spreads all validated fields to the DB update.
 
 **Checkpoint**: Plan approval is scoped to specific tools and expires after timeout. Unlisted tools require separate approval.
 
