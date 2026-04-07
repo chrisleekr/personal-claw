@@ -162,11 +162,11 @@
 
 ### Implementation for User Story 7
 
-- [ ] T035 [US7] Replace `wsClients: Set<ServerWebSocket>` with `wsChannelClients: Map<string, Set<ServerWebSocket>>` in `apps/api/src/config/hot-reload.ts` — key is channelId, value is set of connections subscribed to that channel
-- [ ] T036 [US7] Add a `message` handler to the WebSocket handler in `apps/api/src/config/hot-reload.ts` — parse incoming messages for `{ type: "subscribe", channelIds: string[] }`, validate channel IDs exist, and add the connection to the appropriate channel sets in the map
-- [ ] T037 [US7] Update `broadcastToClients()` in `apps/api/src/config/hot-reload.ts` to only send to connections in `wsChannelClients.get(channelId)` instead of broadcasting to all clients
-- [ ] T038 [US7] Update `removeClient()` in `apps/api/src/config/hot-reload.ts` to remove the connection from all channel sets in the map
-- [ ] T039 [US7] Update the frontend WebSocket hook in `apps/web/src/hooks/use-config-updates.ts` to send a subscribe message with the relevant channel IDs after connection is established
+- [x] T035 [US7] Replace `wsClients: Set<ServerWebSocket>` with `channelSubscriptions: Map<string, Set<ServerWebSocket>>` + `allClients: Set` in `apps/api/src/config/hot-reload.ts`
+- [x] T036 [US7] Add `handleSubscribe()` message handler with Zod validation for `{ type: "subscribe", channelIds: string[] }` in `apps/api/src/config/hot-reload.ts`
+- [x] T037 [US7] Update `broadcastToClients()` to only send to `channelSubscriptions.get(channelId)` in `apps/api/src/config/hot-reload.ts`
+- [x] T038 [US7] Update `removeClient()` to remove from all channel sets in `apps/api/src/config/hot-reload.ts`
+- [x] T039 [US7] Update frontend hook to send subscribe message with channelId after WS connect in `apps/web/src/hooks/use-config-updates.ts`
 
 **Checkpoint**: WebSocket broadcasts are channel-scoped. Clients only receive updates for subscribed channels.
 

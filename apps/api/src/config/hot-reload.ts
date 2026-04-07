@@ -1,5 +1,6 @@
 import { getLogger } from '@logtape/logtape';
 import type { ServerWebSocket } from 'bun';
+import { z } from 'zod';
 import { errorDetails } from '../utils/error-fmt';
 
 const logger = getLogger(['personalclaw', 'config', 'hot-reload']);
@@ -21,10 +22,13 @@ export function onConfigChange(handler: ConfigChangeHandler): void {
 }
 
 // ---------------------------------------------------------------------------
-// WebSocket hub – broadcasts config changes to connected dashboard clients
+// WebSocket hub – channel-scoped config change broadcasting
 // ---------------------------------------------------------------------------
 
-const wsClients = new Set<ServerWebSocket<WsData>>();
+/** All connected clients (for heartbeat/session management). */
+const allClients = new Set<ServerWebSocket<WsData>>();
+/** Channel → set of subscribed WebSocket connections. */
+const channelSubscriptions = new Map<string, Set<ServerWebSocket<WsData>>>();
 
 const HEARTBEAT_MS = 30_000;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -33,7 +37,7 @@ function startHeartbeat(): void {
   if (heartbeatTimer) return;
   heartbeatTimer = setInterval(() => {
     const now = Date.now();
-    for (const ws of wsClients) {
+    for (const ws of allClients) {
       const data = ws.data;
       if (data?.connectedAt && now - data.connectedAt > WS_MAX_SESSION_MS) {
         logger.info('Closing expired WebSocket session', {
@@ -41,7 +45,7 @@ function startHeartbeat(): void {
           ageMs: now - data.connectedAt,
         });
         ws.close(WS_CLOSE_SESSION_EXPIRED, 'Session expired');
-        wsClients.delete(ws);
+        removeClient(ws);
         continue;
       }
       ws.ping();
@@ -57,26 +61,56 @@ function stopHeartbeat(): void {
 }
 
 function addClient(ws: ServerWebSocket<WsData>): void {
-  wsClients.add(ws);
-  logger.debug`WebSocket client connected (total: ${wsClients.size})`;
-  if (wsClients.size === 1) startHeartbeat();
+  allClients.add(ws);
+  logger.debug`WebSocket client connected (total: ${allClients.size})`;
+  if (allClients.size === 1) startHeartbeat();
 }
 
 function removeClient(ws: ServerWebSocket<WsData>): void {
-  wsClients.delete(ws);
-  logger.debug`WebSocket client disconnected (total: ${wsClients.size})`;
-  if (wsClients.size === 0) stopHeartbeat();
+  allClients.delete(ws);
+  // Remove from all channel subscriptions
+  for (const [channelId, subscribers] of channelSubscriptions) {
+    subscribers.delete(ws);
+    if (subscribers.size === 0) channelSubscriptions.delete(channelId);
+  }
+  logger.debug`WebSocket client disconnected (total: ${allClients.size})`;
+  if (allClients.size === 0) stopHeartbeat();
+}
+
+const subscribeMessageSchema = z.object({
+  type: z.literal('subscribe'),
+  channelIds: z.array(z.string().uuid()),
+});
+
+function handleSubscribe(ws: ServerWebSocket<WsData>, message: string): void {
+  try {
+    const parsed = subscribeMessageSchema.parse(JSON.parse(message));
+    for (const channelId of parsed.channelIds) {
+      let subscribers = channelSubscriptions.get(channelId);
+      if (!subscribers) {
+        subscribers = new Set();
+        channelSubscriptions.set(channelId, subscribers);
+      }
+      subscribers.add(ws);
+    }
+    logger.debug('Client subscribed to channels', {
+      channelCount: parsed.channelIds.length,
+    });
+  } catch {
+    // Ignore malformed messages
+  }
 }
 
 function broadcastToClients(channelId: string, changeType: string): void {
-  if (wsClients.size === 0) return;
+  const subscribers = channelSubscriptions.get(channelId);
+  if (!subscribers || subscribers.size === 0) return;
   const payload = JSON.stringify({ channelId, changeType, timestamp: Date.now() });
-  for (const ws of wsClients) {
+  for (const ws of subscribers) {
     try {
       ws.send(payload);
     } catch (error) {
       logger.warn('Failed to send WebSocket message, removing client', errorDetails(error));
-      wsClients.delete(ws);
+      removeClient(ws);
     }
   }
 }
@@ -85,8 +119,8 @@ export const configWsHandler = {
   open(ws: ServerWebSocket<WsData>) {
     addClient(ws);
   },
-  message(_ws: ServerWebSocket<WsData>, _message: string | Buffer) {
-    // no client-to-server messages expected (channel subscriptions added in US7)
+  message(ws: ServerWebSocket<WsData>, message: string | Buffer) {
+    handleSubscribe(ws, typeof message === 'string' ? message : message.toString());
   },
   close(ws: ServerWebSocket<WsData>) {
     removeClient(ws);

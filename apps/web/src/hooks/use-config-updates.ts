@@ -83,11 +83,15 @@ export function useConfigUpdates(
 
       ws.onopen = () => {
         reconnectAttempt = 0;
+        // Subscribe to the channel for scoped updates
+        ws?.send(JSON.stringify({ type: 'subscribe', channelIds: [channelId] }));
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data as string) as ConfigChangeEvent;
+          // Server already scopes broadcasts to subscribed channels,
+          // but we double-check as a defensive measure.
           if (data.channelId === channelId) {
             onUpdateRef.current(data);
           }
