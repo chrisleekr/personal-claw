@@ -51,7 +51,13 @@ export async function initSlackBot() {
     });
 
     if (text.startsWith('/pclaw ')) {
-      await handleSlashCommand({ text, threadTs: threadId, channelId: message.channel, say });
+      await handleSlashCommand({
+        text,
+        threadTs: threadId,
+        channelId: message.channel,
+        userId: 'user' in message ? (message.user as string) : '',
+        say,
+      });
       return;
     }
 

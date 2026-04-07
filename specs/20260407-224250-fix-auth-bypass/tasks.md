@@ -124,10 +124,10 @@
 
 ### Implementation for User Story 5
 
-- [ ] T025 [US5] Add a `checkAdmin` helper function in `apps/api/src/platforms/slack/slash-commands.ts` that queries the channel's `channel_admins` array and checks if the requesting Slack user ID is included. If the array is empty (no admins set), auto-assign the requesting user as the first admin.
-- [ ] T026 [US5] Add permission tier checking to the slash command dispatcher in `apps/api/src/platforms/slack/slash-commands.ts` — before executing a command, check if it's in `ADMIN_COMMANDS` (from `packages/shared/src/constants.ts`). If so, call `checkAdmin`. If the user is not an admin, respond with a denial message listing current admins.
-- [ ] T027 [US5] Implement `/pclaw admin add <userId>`, `/pclaw admin remove <userId>`, and `/pclaw admin list` subcommands in `apps/api/src/platforms/slack/slash-commands.ts` — `add` and `remove` require admin; `list` is read-only. Update the `channel_admins` array in the channels table via `packages/db`.
-- [ ] T028 [US5] Register the new `admin` command in the `SLASH_COMMANDS` map in `packages/shared/src/constants.ts` with appropriate help text
+- [x] T025 [US5] Add a `checkAdmin` helper function in `apps/api/src/platforms/slack/slash-commands.ts` that queries the channel's `channel_admins` array and checks if the requesting Slack user ID is included. If the array is empty (no admins set), auto-assign the requesting user as the first admin.
+- [x] T026 [US5] Add permission tier checking to the slash command dispatcher in `apps/api/src/platforms/slack/slash-commands.ts` — before executing a command, check if it's in `ADMIN_COMMANDS` (from `packages/shared/src/constants.ts`). If so, call `checkAdmin`. If the user is not an admin, respond with a denial message listing current admins.
+- [x] T027 [US5] Implement `/pclaw admin add <userId>`, `/pclaw admin remove <userId>`, and `/pclaw admin list` subcommands in `apps/api/src/platforms/slack/slash-commands.ts` — `add` and `remove` require admin; `list` is read-only. Update the `channel_admins` array in the channels table via `packages/db`.
+- [x] T028 [US5] Already done in Phase 1 (T004) — `admin` added to SLASH_COMMANDS array in `packages/shared/src/constants.ts`.
 
 **Checkpoint**: State-changing commands restricted to admins. Read-only commands unaffected. First user auto-assigned as admin.
 
