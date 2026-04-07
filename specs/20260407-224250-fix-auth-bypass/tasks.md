@@ -47,13 +47,13 @@
 
 ### Implementation for User Story 1
 
-- [ ] T006 [US1] Create `apps/api/src/routes/ws-ticket.ts` — new Hono route `GET /api/ws-ticket` that generates a UUID ticket, stores it in an in-memory `Map<string, { createdAt: number, used: boolean }>` with 60-second TTL, and returns `{ data: { ticket, expiresIn: 60 } }`. Add periodic cleanup (every 60s) to remove expired tickets. Requires Bearer auth (already covered by auth middleware on `/api/*`).
-- [ ] T007 [US1] Register the ws-ticket route in `apps/api/src/index.ts` under the `/api` prefix alongside existing routes
-- [ ] T008 [US1] Update the WebSocket upgrade path in `apps/api/src/index.ts` — extract `ticket` query parameter from the request URL, look up in the ticket store, validate not expired and not used, mark as used, reject with 401 Response if invalid, pass `{ data: { ticketId } }` on successful upgrade
-- [ ] T009 [US1] Add LogTape logging for WebSocket auth rejections in `apps/api/src/index.ts` — log rejected connection attempts with path and reason using category `['personalclaw', 'ws', 'auth']`
-- [ ] T010 [US1] Implement WS session max duration check in `apps/api/src/config/hot-reload.ts` — store `connectionOpenedAt` in the WebSocket data field during upgrade, and on each heartbeat ping (every 30s) close connections exceeding 24 hours with close code 4001 (FR-004)
-- [ ] T011 [US1] Create `apps/web/src/app/api/proxy/ws-ticket/route.ts` — Next.js proxy route that calls `GET /api/ws-ticket` with `Authorization: Bearer ${API_SECRET}` (server-side, matching the existing proxy pattern), and returns the ticket to the frontend
-- [ ] T012 [US1] Update the frontend WebSocket hook in `apps/web/src/hooks/use-config-updates.ts` — first obtain a ticket via `fetch('/api/proxy/ws-ticket')`, then connect with `ws://${host}/ws/config-updates?ticket=${ticket}`. On close code 4001 (session expired), auto-reconnect with a fresh ticket.
+- [x] T006 [US1] Create `apps/api/src/routes/ws-ticket.ts` — new Hono route `GET /api/ws-ticket` that generates a UUID ticket, stores it in an in-memory `Map<string, { createdAt: number, used: boolean }>` with 60-second TTL, and returns `{ data: { ticket, expiresIn: 60 } }`. Add periodic cleanup (every 60s) to remove expired tickets. Requires Bearer auth (already covered by auth middleware on `/api/*`).
+- [x] T007 [US1] Register the ws-ticket route in `apps/api/src/index.ts` under the `/api` prefix alongside existing routes
+- [x] T008 [US1] Update the WebSocket upgrade path in `apps/api/src/index.ts` — extract `ticket` query parameter from the request URL, look up in the ticket store, validate not expired and not used, mark as used, reject with 401 Response if invalid, pass `{ data: { ticketId } }` on successful upgrade
+- [x] T009 [US1] Add LogTape logging for WebSocket auth rejections in `apps/api/src/index.ts` — log rejected connection attempts with path and reason using category `['personalclaw', 'ws', 'auth']`
+- [x] T010 [US1] Implement WS session max duration check in `apps/api/src/config/hot-reload.ts` — store `connectionOpenedAt` in the WebSocket data field during upgrade, and on each heartbeat ping (every 30s) close connections exceeding 24 hours with close code 4001 (FR-004)
+- [x] T011 [US1] Create `apps/web/src/app/api/proxy/ws-ticket/route.ts` — N/A: Existing catch-all proxy at `apps/web/src/app/api/proxy/[...path]/route.ts` already handles `/api/proxy/api/ws-ticket` → backend `/api/ws-ticket`. No dedicated route file needed.
+- [x] T012 [US1] Update the frontend WebSocket hook in `apps/web/src/hooks/use-config-updates.ts` — first obtain a ticket via `fetch('/api/proxy/api/ws-ticket')`, then connect with `ws://${host}/ws/config-updates?ticket=${ticket}`. On close code 4001 (session expired), auto-reconnect with a fresh ticket.
 
 **Checkpoint**: Unauthenticated WS connections are rejected. API_SECRET stays server-side. Sessions expire after 24 hours.
 

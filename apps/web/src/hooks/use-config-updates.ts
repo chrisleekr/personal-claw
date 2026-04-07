@@ -19,13 +19,34 @@ function deriveWsUrl(httpUrl: string): string {
   return url.toString();
 }
 
-const WS_URL = deriveWsUrl(API_URL);
+const WS_BASE_URL = deriveWsUrl(API_URL);
 
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const BASE_RECONNECT_DELAY_MS = 1_000;
+/** WebSocket close code indicating session expiry (server-side). */
+const WS_CLOSE_SESSION_EXPIRED = 4001;
+
+/**
+ * Obtains a single-use, time-limited WebSocket ticket from the backend
+ * via the authenticated Next.js proxy.
+ * @returns The ticket string, or null if the request fails.
+ */
+async function fetchWsTicket(): Promise<string | null> {
+  try {
+    const res = await fetch('/api/proxy/api/ws-ticket');
+    if (!res.ok) return null;
+    const json = (await res.json()) as { data?: { ticket?: string } };
+    return json.data?.ticket ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Subscribes to real-time config change events from the backend.
+ * Obtains a short-lived ticket via the authenticated proxy, then
+ * connects to the WebSocket with that ticket. API_SECRET is never
+ * exposed to the browser.
  * Calls `onUpdate` whenever a change matching `channelId` is received.
  */
 export function useConfigUpdates(
@@ -43,10 +64,22 @@ export function useConfigUpdates(
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let unmounted = false;
 
-    function connect() {
+    async function connect() {
       if (unmounted) return;
 
-      ws = new WebSocket(WS_URL);
+      const ticket = await fetchWsTicket();
+      if (!ticket || unmounted) {
+        // Retry after delay if ticket fetch fails
+        const delay = Math.min(
+          BASE_RECONNECT_DELAY_MS * 2 ** reconnectAttempt,
+          MAX_RECONNECT_DELAY_MS,
+        );
+        reconnectAttempt++;
+        reconnectTimer = setTimeout(connect, delay);
+        return;
+      }
+
+      ws = new WebSocket(`${WS_BASE_URL}?ticket=${ticket}`);
 
       ws.onopen = () => {
         reconnectAttempt = 0;
@@ -63,12 +96,13 @@ export function useConfigUpdates(
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (unmounted) return;
-        const delay = Math.min(
-          BASE_RECONNECT_DELAY_MS * 2 ** reconnectAttempt,
-          MAX_RECONNECT_DELAY_MS,
-        );
+        // On session expiry, reconnect immediately with fresh ticket
+        const delay =
+          event.code === WS_CLOSE_SESSION_EXPIRED
+            ? 0
+            : Math.min(BASE_RECONNECT_DELAY_MS * 2 ** reconnectAttempt, MAX_RECONNECT_DELAY_MS);
         reconnectAttempt++;
         reconnectTimer = setTimeout(connect, delay);
       };

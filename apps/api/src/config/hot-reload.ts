@@ -4,6 +4,14 @@ import { errorDetails } from '../utils/error-fmt';
 
 const logger = getLogger(['personalclaw', 'config', 'hot-reload']);
 
+/** WebSocket close code for session timeout. */
+export const WS_CLOSE_SESSION_EXPIRED = 4001;
+const WS_MAX_SESSION_MS = 86_400_000; // 24 hours
+
+export interface WsData {
+  connectedAt: number;
+}
+
 type ConfigChangeHandler = (channelId: string, changeType: string) => void;
 
 const handlers: ConfigChangeHandler[] = [];
@@ -16,7 +24,7 @@ export function onConfigChange(handler: ConfigChangeHandler): void {
 // WebSocket hub – broadcasts config changes to connected dashboard clients
 // ---------------------------------------------------------------------------
 
-const wsClients = new Set<ServerWebSocket<unknown>>();
+const wsClients = new Set<ServerWebSocket<WsData>>();
 
 const HEARTBEAT_MS = 30_000;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -24,7 +32,18 @@ let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 function startHeartbeat(): void {
   if (heartbeatTimer) return;
   heartbeatTimer = setInterval(() => {
+    const now = Date.now();
     for (const ws of wsClients) {
+      const data = ws.data;
+      if (data?.connectedAt && now - data.connectedAt > WS_MAX_SESSION_MS) {
+        logger.info('Closing expired WebSocket session', {
+          connectedAt: data.connectedAt,
+          ageMs: now - data.connectedAt,
+        });
+        ws.close(WS_CLOSE_SESSION_EXPIRED, 'Session expired');
+        wsClients.delete(ws);
+        continue;
+      }
       ws.ping();
     }
   }, HEARTBEAT_MS);
@@ -37,13 +56,13 @@ function stopHeartbeat(): void {
   }
 }
 
-function addClient(ws: ServerWebSocket<unknown>): void {
+function addClient(ws: ServerWebSocket<WsData>): void {
   wsClients.add(ws);
   logger.debug`WebSocket client connected (total: ${wsClients.size})`;
   if (wsClients.size === 1) startHeartbeat();
 }
 
-function removeClient(ws: ServerWebSocket<unknown>): void {
+function removeClient(ws: ServerWebSocket<WsData>): void {
   wsClients.delete(ws);
   logger.debug`WebSocket client disconnected (total: ${wsClients.size})`;
   if (wsClients.size === 0) stopHeartbeat();
@@ -63,13 +82,13 @@ function broadcastToClients(channelId: string, changeType: string): void {
 }
 
 export const configWsHandler = {
-  open(ws: ServerWebSocket<unknown>) {
+  open(ws: ServerWebSocket<WsData>) {
     addClient(ws);
   },
-  message(_ws: ServerWebSocket<unknown>, _message: string | Buffer) {
-    // no client-to-server messages expected
+  message(_ws: ServerWebSocket<WsData>, _message: string | Buffer) {
+    // no client-to-server messages expected (channel subscriptions added in US7)
   },
-  close(ws: ServerWebSocket<unknown>) {
+  close(ws: ServerWebSocket<WsData>) {
     removeClient(ws);
   },
 };
