@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/chrisleekr/personal-claw/compare/v1.2.0...v1.2.1) (2026-04-07)
+
+
+### Bug Fixes
+
+* **sandbox:** harden command allowlist and enforce sandbox isolation ([#23](https://github.com/chrisleekr/personal-claw/issues/23)) ([f0c8ed4](https://github.com/chrisleekr/personal-claw/commit/f0c8ed428c9f7d32998cb17ced0ddb39e81f97d1))
+
 # [1.2.0](https://github.com/chrisleekr/personal-claw/compare/v1.1.0...v1.2.0) (2026-04-06)
 
 
