@@ -45,6 +45,8 @@ export const channels = pgTable(
     costBudgetDailyUsd: decimal('cost_budget_daily_usd', { precision: 10, scale: 2 }),
     threadReplyMode: text('thread_reply_mode').notNull().default('all'),
     autonomyLevel: text('autonomy_level').notNull().default('balanced'),
+    approvalTimeoutMs: integer('approval_timeout_ms').notNull().default(600_000),
+    channelAdmins: text('channel_admins').array().notNull().default([]),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

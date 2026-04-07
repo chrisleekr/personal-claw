@@ -289,3 +289,13 @@ export interface ImageAttachment {
   data: Buffer;
   mimetype: string;
 }
+
+/** Tracks which tools were approved in a plan and when approval expires. */
+export interface PlanApprovalState {
+  /** Tool names explicitly declared in the approved plan. */
+  approvedToolNames: Set<string>;
+  /** Unix timestamp (ms) when the plan was approved. */
+  approvedAt: number;
+  /** Per-channel timeout in ms after which approval expires. */
+  timeoutMs: number;
+}

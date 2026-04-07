@@ -143,7 +143,15 @@ export const createChannelSchema = z.object({
   costBudgetDailyUsd: z.number().nullable().optional(),
 });
 
-export const updateChannelSchema = createChannelSchema.partial();
+export const approvalTimeoutMsSchema = z.number().int().min(60_000).max(3_600_000).default(600_000);
+export const channelAdminsSchema = z.array(z.string().min(1)).default([]);
+
+export const updateChannelSchema = createChannelSchema
+  .extend({
+    approvalTimeoutMs: approvalTimeoutMsSchema.optional(),
+    channelAdmins: channelAdminsSchema.optional(),
+  })
+  .partial();
 
 export const createSkillSchema = z.object({
   channelId: z.string().uuid(),
