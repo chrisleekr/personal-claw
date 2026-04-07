@@ -53,19 +53,21 @@ flowchart TD
     H -->|"Yes"| I["Agent asks clarifying<br/>questions in text"]
     H -->|"No"| J["LLM calls confirm_plan tool"]
     J --> K["Slack: plan posted with<br/>Approve / Reject buttons"]
-    K -->|"Approved"| L["gateway.planApproved = true"]
+    K -->|"Approved"| L["planApprovalState = <br/> toolNames + timeout"]
     K -->|"Rejected / Timeout"| M["Agent told plan rejected,<br/>asks for guidance"]
     L --> N{"LLM calls<br/>a real tool"}
     N --> O["gateway.checkApproval"]
     O --> P{"approval_policies<br/>row exists?"}
     P -->|"policy = ask"| Q["Slack Approve/Deny<br/>always, even after plan"]
     P -->|"policy = deny"| R["Blocked, return error<br/>to LLM"]
-    P -->|"policy = allowlist"| S{"userId in<br/>allowedUsers?"}
-    P -->|"No row, default"| T{"planApproved?"}
-    S -->|"Yes"| U["Execute tool"]
-    S -->|"No"| R
+    P -->|"policy = allowlist"| S{"verified userId<br/>in allowedUsers?"}
+    P -->|"No row, default"| T{"tool in approved plan<br/>AND not timed out?"}
+    S -->|"Yes + verified"| U["Execute tool"]
+    S -->|"No or unverified"| Q
     T -->|"Yes"| U
-    T -->|"No"| Q
+    T -->|"No"| X{"In safeToolNames?"}
+    X -->|"Yes"| U
+    X -->|"No"| Q
     Q -->|"Approved"| U
     Q -->|"Denied / 5min timeout"| V["Notify user in thread,<br/>return denied to LLM"]
     U --> W["Return result to LLM"]
@@ -84,7 +86,7 @@ flowchart TD
    - Displays **Approve** and **Reject** buttons
    - Blocks execution until the user responds or 5 minutes elapse
 
-3. On approval, `gateway.planApproved` is set to `true`, granting default access to tools without explicit policies.
+3. On approval, `gateway.planApprovalState` is set with the specific tool names declared in the plan and a per-channel timeout (default 10 minutes). Only tools listed in the approved plan auto-execute; unlisted tools require separate approval. The approval expires after the timeout.
 
 4. On rejection or timeout, the agent asks the user what to change and presents a revised plan.
 

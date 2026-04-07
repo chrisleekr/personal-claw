@@ -11,10 +11,20 @@ interface TicketEntry {
   used: boolean;
 }
 
-/** In-memory store for single-use, time-limited WebSocket tickets. */
+/**
+ * In-memory store for single-use, time-limited WebSocket tickets.
+ * Tickets are issued via `GET /api/ws-ticket` and consumed during
+ * the WebSocket upgrade in the Bun fetch handler.
+ */
 export const wsTicketStore = new Map<string, TicketEntry>();
 
-/** Validates and consumes a WS ticket. Returns true if valid. */
+/**
+ * Validates and consumes a WS ticket. Returns true if the ticket
+ * exists, has not been used, and has not expired. Marks the ticket
+ * as used on success.
+ * @param ticket - The UUID ticket string from the query parameter.
+ * @returns true if the ticket is valid and was successfully consumed.
+ */
 export function consumeTicket(ticket: string): boolean {
   const entry = wsTicketStore.get(ticket);
   if (!entry) return false;

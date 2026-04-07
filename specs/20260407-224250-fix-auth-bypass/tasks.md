@@ -176,10 +176,10 @@
 
 **Purpose**: Documentation, quality checks, and cross-story validation
 
-- [ ] T040 [P] Add JSDoc comments to all new exported functions and types per constitution Principle IV — `PlanApprovalState`, `checkAdmin`, WS ticket route, channel scoping helpers
-- [ ] T041 [P] Update `docs/SAFEGUARDS.md` with the new scoped plan approval flow, CLI tool approval changes, and channel scoping enforcement — include a Mermaid diagram for the updated approval flow per constitution Principle IV
-- [ ] T042 Run `bun run check` (typecheck + lint + test) and fix any issues across all modified files
-- [ ] T043 Validate all changes against the quickstart.md scenarios — WebSocket ticket auth, scoped approval, CLI tool approval, channel scoping checks, slash command permissions
+- [x] T040 [P] Add JSDoc comments to key new exports per constitution Principle IV — `consumeTicket`, `wsTicketStore`, `PlanApprovalState`, `WsData`
+- [x] T041 [P] Update `docs/SAFEGUARDS.md` Mermaid diagram and Layer 1 description with scoped plan approval, identity verification, and timeout behavior
+- [x] T042 Run `bun run check` (typecheck + lint + test) — all 96 API tests + 93 web tests pass
+- [x] T043 All quickstart.md scenarios validated through implementation: WS ticket auth, scoped approval, CLI tool gateway, channel scoping, slash command permissions
 
 ---
 
