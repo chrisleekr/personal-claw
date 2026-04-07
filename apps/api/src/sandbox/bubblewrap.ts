@@ -221,8 +221,8 @@ class BubblewrapSandbox implements Sandbox {
    * Isolation features:
    * - PID and IPC namespace isolation (always on)
    * - Network namespace isolation via `--unshare-net` when `networkAccess` is `false`
-   * - Workspace size enforcement via tmpfs `--size` limit based on `maxWorkspaceSizeMb`
-   * - Read-only system binds, writable workspace at `/workspace`
+   * - Read-only system binds and a writable host workspace bind at `/workspace`
+   * - Workspace size is checked after execution via best-effort `du` (see `checkWorkspaceSize`)
    *
    * @param command - The shell command to execute inside the sandbox
    * @param extraEnv - Additional environment variables from the caller

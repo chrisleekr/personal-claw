@@ -44,7 +44,7 @@ export const DEFAULT_SANDBOX_CONFIG: SandboxConfig = {
     'touch',
     'echo',
   ],
-  deniedPatterns: ['\\brm\\s+(-[a-z]*[rf][a-z]*\\s+)*\\/', '\\bmkfs\\b', '\\bdd\\b.*\\bif='],
+  deniedPatterns: ['\\brm\\s+(-\\w+\\s+)*\\/', '\\bmkfs\\b', '\\bdd\\b.*\\bif='],
   maxExecutionTimeS: 60,
   maxWorkspaceSizeMb: 256,
   networkAccess: true,

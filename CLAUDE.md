@@ -29,7 +29,6 @@ TypeScript 5.7+ (strict mode, zero `any`): Follow standard conventions
 
 ## Recent Changes
 - 20260407-184402-fix-sandbox-cmd-bypass: Added TypeScript 5.7+ (strict mode, zero `any`) + Bun 1.3.9 (runtime), Hono (API), LogTape (logging), Zod (validation), `@personalclaw/shared` (types, schemas, MCP security)
-- 20260407-184402-fix-sandbox-cmd-bypass: Added TypeScript 5.7+ (strict mode, zero `any`) + Bun 1.3.9 (runtime), Hono (API), LogTape (logging), Zod (validation), `@personalclaw/shared` (types, schemas, MCP security)
 - 20260406-221125-ollama-embedding-provider: Added TypeScript 5.7+ (strict mode, zero `any`) + Bun 1.3.9 + Hono (API), `ai` (Vercel AI SDK v6), `ollama-ai-provider-v2` v3.3.1 (already installed)
 
 

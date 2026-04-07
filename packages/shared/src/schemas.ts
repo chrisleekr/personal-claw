@@ -74,7 +74,7 @@ export const sandboxConfigSchema = z.object({
     ]),
   deniedPatterns: z
     .array(z.string())
-    .default(['\\brm\\s+(-[a-z]*[rf][a-z]*\\s+)*\\/', '\\bmkfs\\b', '\\bdd\\b.*\\bif='])
+    .default(['\\brm\\s+(-\\w+\\s+)*\\/', '\\bmkfs\\b', '\\bdd\\b.*\\bif='])
     .refine(
       (patterns) => {
         // Reject patterns with nested quantifiers on capturing/non-capturing groups

@@ -10,7 +10,7 @@ import {
 
 const baseConfig: SandboxConfig = {
   allowedCommands: ['git', 'ls', 'cat', 'echo', 'python3', 'node', 'find', 'pip', 'curl', 'bun'],
-  deniedPatterns: ['\\brm\\s+(-[a-z]*[rf][a-z]*\\s+)*\\/', '\\bmkfs\\b', '\\bdd\\b.*\\bif='],
+  deniedPatterns: ['\\brm\\s+(-\\w+\\s+)*\\/', '\\bmkfs\\b', '\\bdd\\b.*\\bif='],
   maxExecutionTimeS: 60,
   maxWorkspaceSizeMb: 256,
   networkAccess: true,
@@ -179,17 +179,14 @@ describe('SandboxCommandValidator', () => {
 
   describe('shell interpreter warning', () => {
     test('emits warning when bash is in custom allowlist', () => {
-      // The warning is logged in the constructor - we just verify it doesn't throw
+      // The warning is logged in the constructor; this test verifies construction succeeds.
       const warnConfig: SandboxConfig = {
         ...baseConfig,
         allowedCommands: [...baseConfig.allowedCommands, 'bash'],
       };
       const warnValidator = new SandboxCommandValidator(warnConfig);
-      // bash -c should still pass since it's explicitly allowed
+      // bash -c is allowed here only because an admin explicitly added bash to the allowlist.
       const result = warnValidator.validateCommand('bash -c "test"');
-      // bash is allowed but -c is an eval flag - should be blocked by hasEvalFlag?
-      // Actually bash is in SHELL_INTERPRETERS not INTERPRETER_BINARIES, so eval check doesn't apply
-      // It's allowed because admin explicitly added it
       expect(result.valid).toBe(true);
     });
   });
@@ -287,6 +284,12 @@ describe('SandboxCommandValidator', () => {
 
     test('allows find -name', () => {
       expect(validator.validateCommand('find . -name "*.ts"')).toEqual({ valid: true });
+    });
+
+    test('blocks find "-delete" with quoted arg (quoting bypass)', () => {
+      const result = validator.validateCommand('find . "-delete"');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('deletion');
     });
 
     test('blocks git -c core.hooksPath (stealth code execution)', () => {
