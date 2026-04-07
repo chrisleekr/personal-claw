@@ -237,7 +237,7 @@ export class ApprovalGateway {
       return true;
     }
 
-    logger.debug('No policy matched, queuing for user approval', {
+    logger.info('No policy matched, queuing for user approval', {
       toolName,
       channelId: this.channelId,
       planApproved: this.planApproved,

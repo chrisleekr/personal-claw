@@ -69,8 +69,8 @@
 
 ### Implementation for User Story 4
 
-- [ ] T013 [US4] Remove `aws_cli`, `github_cli`, `curl_fetch` from the `getSafeToolNames()` return array in `CLIToolProvider` in `apps/api/src/agent/tool-providers.ts` — return an empty array `[]`
-- [ ] T014 [US4] Add LogTape logging in `apps/api/src/agent/approval-gateway.ts` when a tool that has no policy and is not in `safeToolNames` is routed through the default approval path, using category `['personalclaw', 'agent', 'approval']`
+- [x] T013 [US4] Remove `aws_cli`, `github_cli`, `curl_fetch` from the `getSafeToolNames()` return array in `CLIToolProvider` in `apps/api/src/agent/tool-providers.ts` — return an empty array `[]`
+- [x] T014 [US4] Add LogTape logging in `apps/api/src/agent/approval-gateway.ts` when a tool that has no policy and is not in `safeToolNames` is routed through the default approval path, using category `['personalclaw', 'agent', 'approval']`
 
 **Checkpoint**: CLI tools go through the approval gateway. The `safeToolNames` check remains for genuinely non-destructive tools (memory, identity) per Constitution VI. Channel admins can set `auto` policy per tool via the existing approvals API (FR-010 — already implemented).
 
