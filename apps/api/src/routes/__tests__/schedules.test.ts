@@ -123,10 +123,11 @@ describe('Schedules Routes', () => {
     expect(body.error).toBe('VALIDATION_ERROR');
   });
 
-  test('PUT /:id updates schedule', async () => {
+  test('PUT /:channelId/:id updates schedule', async () => {
+    mockRows = [MOCK_SCHEDULE];
     mockUpdateRows = [{ ...MOCK_SCHEDULE, name: 'Weekly review' }];
     const res = await app.request(
-      jsonReq('/api/schedules/sched-001', {
+      jsonReq(`/api/schedules/${CHANNEL_ID}/sched-001`, {
         method: 'PUT',
         body: JSON.stringify({ name: 'Weekly review' }),
       }),
@@ -136,10 +137,10 @@ describe('Schedules Routes', () => {
     expect(body.data.name).toBe('Weekly review');
   });
 
-  test('PUT /:id returns 404 when not found', async () => {
+  test('PUT /:channelId/:id returns 404 when not found', async () => {
     mockUpdateRows = [];
     const res = await app.request(
-      jsonReq('/api/schedules/nonexistent', {
+      jsonReq(`/api/schedules/${CHANNEL_ID}/nonexistent`, {
         method: 'PUT',
         body: JSON.stringify({ name: 'test' }),
       }),
@@ -147,17 +148,18 @@ describe('Schedules Routes', () => {
     expect(res.status).toBe(404);
   });
 
-  test('DELETE /:id deletes schedule', async () => {
+  test('DELETE /:channelId/:id deletes schedule', async () => {
+    mockRows = [MOCK_SCHEDULE];
     mockDeleteRows = [MOCK_SCHEDULE];
-    const res = await app.request('/api/schedules/sched-001', { method: 'DELETE' });
+    const res = await app.request(`/api/schedules/${CHANNEL_ID}/sched-001`, { method: 'DELETE' });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.deleted).toBe(true);
   });
 
-  test('DELETE /:id returns 404 when not found', async () => {
+  test('DELETE /:channelId/:id returns 404 when not found', async () => {
     mockDeleteRows = [];
-    const res = await app.request('/api/schedules/nonexistent', { method: 'DELETE' });
+    const res = await app.request(`/api/schedules/${CHANNEL_ID}/nonexistent`, { method: 'DELETE' });
     expect(res.status).toBe(404);
   });
 });

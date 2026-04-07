@@ -51,4 +51,22 @@ export class MemoryService {
     const [row] = await db.delete(channelMemories).where(eq(channelMemories.id, id)).returning();
     if (!row) throw new NotFoundError('Memory', id);
   }
+
+  /** Update with channel-scoping verification. */
+  async updateScoped(channelId: string, id: string, input: UpdateMemoryInput) {
+    const db = getDb();
+    const [existing] = await db.select().from(channelMemories).where(eq(channelMemories.id, id));
+    if (!existing) throw new NotFoundError('Memory', id);
+    if (existing.channelId !== channelId) throw new NotFoundError('Memory', id);
+    return this.update(id, input);
+  }
+
+  /** Delete with channel-scoping verification. */
+  async deleteScoped(channelId: string, id: string) {
+    const db = getDb();
+    const [existing] = await db.select().from(channelMemories).where(eq(channelMemories.id, id));
+    if (!existing) throw new NotFoundError('Memory', id);
+    if (existing.channelId !== channelId) throw new NotFoundError('Memory', id);
+    return this.delete(id);
+  }
 }

@@ -17,13 +17,13 @@ skillsRoute.post('/', async (c) => {
   return c.json({ data: row }, 201);
 });
 
-skillsRoute.put('/:id', async (c) => {
+skillsRoute.put('/:channelId/:id', async (c) => {
   const input = updateSkillSchema.parse(await c.req.json());
-  const row = await skillService.update(c.req.param('id'), input);
+  const row = await skillService.updateScoped(c.req.param('channelId'), c.req.param('id'), input);
   return c.json({ data: row });
 });
 
-skillsRoute.delete('/:id', async (c) => {
-  await skillService.delete(c.req.param('id'));
+skillsRoute.delete('/:channelId/:id', async (c) => {
+  await skillService.deleteScoped(c.req.param('channelId'), c.req.param('id'));
   return c.json({ data: { deleted: true } });
 });

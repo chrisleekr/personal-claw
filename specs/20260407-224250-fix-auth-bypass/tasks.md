@@ -141,12 +141,12 @@
 
 ### Implementation for User Story 6
 
-- [ ] T029 [P] [US6] Add channel scoping verification to `apps/api/src/routes/memories.ts` — PATCH and DELETE endpoints must require `channelId` parameter, fetch the entity, verify `entity.channelId === channelId`, throw `NotFoundError` on mismatch (matching the `conversations.ts` pattern)
-- [ ] T030 [P] [US6] Add channel scoping verification to `apps/api/src/routes/approvals.ts` — POST verifies the provided `channelId` exists in the channels table, PUT and DELETE require `channelId` and verify against the fetched entity
-- [ ] T031 [P] [US6] Add channel scoping verification to `apps/api/src/routes/schedules.ts` — same pattern: require `channelId`, fetch entity, verify match, throw `NotFoundError` on mismatch
-- [ ] T032 [P] [US6] Add channel scoping verification to `apps/api/src/routes/skills.ts` — same pattern as above
-- [ ] T033 [P] [US6] Add channel scoping verification to `apps/api/src/routes/mcp.ts` — apply to all 5 mutation endpoints (create, update, delete, upsertToolPolicy, deleteToolPolicy). Verify `channelId` on each.
-- [ ] T034 [US6] Update corresponding service methods in `apps/api/src/services/` (memory.service.ts, approval.service.ts, schedule.service.ts, skill.service.ts, mcp.service.ts) to accept `channelId` parameter and include it in queries where needed for verification
+- [x] T029 [P] [US6] Add channel scoping verification to `apps/api/src/routes/memories.ts` — PATCH and DELETE endpoints require `channelId` path parameter, delegate to scoped service methods
+- [x] T030 [P] [US6] Add channel scoping verification to `apps/api/src/routes/approvals.ts` — PUT and DELETE require `channelId` path parameter, delegate to scoped service methods
+- [x] T031 [P] [US6] Add channel scoping verification to `apps/api/src/routes/schedules.ts` — PUT and DELETE require `channelId` path parameter, delegate to scoped service methods
+- [x] T032 [P] [US6] Add channel scoping verification to `apps/api/src/routes/skills.ts` — PUT and DELETE require `channelId` path parameter, delegate to scoped service methods
+- [x] T033 [P] [US6] Add channel scoping verification to `apps/api/src/routes/mcp.ts` — PUT and DELETE require `channelId` path parameter, delegate to scoped service methods
+- [x] T034 [US6] Add `updateScoped` and `deleteScoped` methods to all 5 service files (memory.service.ts, approval.service.ts, schedule.service.ts, skill.service.ts, mcp.service.ts) — fetch entity, verify channelId matches, throw NotFoundError on mismatch
 
 **Checkpoint**: All CRUD endpoints verify channel scoping. Cross-channel access returns 404.
 

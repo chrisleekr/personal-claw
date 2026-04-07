@@ -46,4 +46,20 @@ export class ScheduleService {
     if (!row) throw new NotFoundError('Schedule', id);
     emitConfigChange(row.channelId, 'schedules');
   }
+
+  async updateScoped(channelId: string, id: string, input: UpdateScheduleInput) {
+    const db = getDb();
+    const [existing] = await db.select().from(schedules).where(eq(schedules.id, id));
+    if (!existing) throw new NotFoundError('Schedule', id);
+    if (existing.channelId !== channelId) throw new NotFoundError('Schedule', id);
+    return this.update(id, input);
+  }
+
+  async deleteScoped(channelId: string, id: string) {
+    const db = getDb();
+    const [existing] = await db.select().from(schedules).where(eq(schedules.id, id));
+    if (!existing) throw new NotFoundError('Schedule', id);
+    if (existing.channelId !== channelId) throw new NotFoundError('Schedule', id);
+    return this.delete(id);
+  }
 }

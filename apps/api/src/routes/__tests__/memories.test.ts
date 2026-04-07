@@ -112,10 +112,11 @@ describe('Memories Routes', () => {
     expect(body.data).toHaveLength(1);
   });
 
-  test('PATCH /:id updates memory', async () => {
+  test('PATCH /:channelId/:id updates memory', async () => {
+    mockRows = [MOCK_MEMORY];
     mockUpdateRows = [{ ...MOCK_MEMORY, content: 'Updated content' }];
     const res = await app.request(
-      jsonReq('/api/memories/mem-001', {
+      jsonReq(`/api/memories/${CHANNEL_ID}/mem-001`, {
         method: 'PATCH',
         body: JSON.stringify({ content: 'Updated content' }),
       }),
@@ -125,10 +126,10 @@ describe('Memories Routes', () => {
     expect(body.data.content).toBe('Updated content');
   });
 
-  test('PATCH /:id returns 404 when not found', async () => {
+  test('PATCH /:channelId/:id returns 404 when not found', async () => {
     mockUpdateRows = [];
     const res = await app.request(
-      jsonReq('/api/memories/nonexistent', {
+      jsonReq(`/api/memories/${CHANNEL_ID}/nonexistent`, {
         method: 'PATCH',
         body: JSON.stringify({ content: 'test' }),
       }),
@@ -136,9 +137,9 @@ describe('Memories Routes', () => {
     expect(res.status).toBe(404);
   });
 
-  test('PATCH /:id returns 400 for invalid input', async () => {
+  test('PATCH /:channelId/:id returns 400 for invalid input', async () => {
     const res = await app.request(
-      jsonReq('/api/memories/mem-001', {
+      jsonReq(`/api/memories/${CHANNEL_ID}/mem-001`, {
         method: 'PATCH',
         body: JSON.stringify({ content: '' }),
       }),
@@ -148,17 +149,18 @@ describe('Memories Routes', () => {
     expect(body.error).toBe('VALIDATION_ERROR');
   });
 
-  test('DELETE /:id deletes memory', async () => {
+  test('DELETE /:channelId/:id deletes memory', async () => {
+    mockRows = [MOCK_MEMORY];
     mockDeleteRows = [MOCK_MEMORY];
-    const res = await app.request('/api/memories/mem-001', { method: 'DELETE' });
+    const res = await app.request(`/api/memories/${CHANNEL_ID}/mem-001`, { method: 'DELETE' });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.deleted).toBe(true);
   });
 
-  test('DELETE /:id returns 404 when not found', async () => {
+  test('DELETE /:channelId/:id returns 404 when not found', async () => {
     mockDeleteRows = [];
-    const res = await app.request('/api/memories/nonexistent', { method: 'DELETE' });
+    const res = await app.request(`/api/memories/${CHANNEL_ID}/nonexistent`, { method: 'DELETE' });
     expect(res.status).toBe(404);
   });
 });
