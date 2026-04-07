@@ -79,6 +79,16 @@ type ValidationResult = { valid: true } | { valid: false; reason: string };
 const SHELL_METACHAR_PATTERN = /[;|&`$\n\r\0]|\$\(/;
 
 /**
+ * Checks if a path is inside /workspace after normalization.
+ * Prevents traversal bypasses like `/workspace/../tmp` and prefix
+ * confusion like `/workspace-backdoor`.
+ */
+function isInsideWorkspace(target: string): boolean {
+  const normalized = normalize(target);
+  return normalized === '/workspace' || normalized.startsWith('/workspace/');
+}
+
+/**
  * Known shell interpreters that defeat the command allowlist when included.
  * Any of these binaries can execute arbitrary commands via `-c` or script arguments,
  * rendering the allowlist meaningless. Removed from defaults; emits a warning if
@@ -127,9 +137,10 @@ export const DANGEROUS_ARG_RULES: ReadonlyMap<
         for (let i = 0; i < args.length; i++) {
           const a = args[i];
           // Separate arg form: git -c core.hooksPath=...
+          // Git config names are case-insensitive per git-scm.com docs
           if (a === '-c' && i + 1 < args.length) {
-            const val = args[i + 1];
-            if (val && (val.startsWith('core.hooksPath') || val.startsWith('core.sshCommand'))) {
+            const val = args[i + 1]?.toLowerCase();
+            if (val && (val.startsWith('core.hookspath') || val.startsWith('core.sshcommand'))) {
               return (
                 `"git -c ${val}" can execute arbitrary code via hooks. ` +
                 'Use standard git commands like clone, pull, push, status instead.'
@@ -137,7 +148,8 @@ export const DANGEROUS_ARG_RULES: ReadonlyMap<
             }
           }
           // Concatenated form: git -ccore.hooksPath=...
-          if (a.startsWith('-ccore.hooksPath') || a.startsWith('-ccore.sshCommand')) {
+          const lower = a.toLowerCase();
+          if (lower.startsWith('-ccore.hookspath') || lower.startsWith('-ccore.sshcommand')) {
             return (
               `"git ${a}" can execute arbitrary code via hooks. ` +
               'Use standard git commands like clone, pull, push, status instead.'
@@ -152,16 +164,20 @@ export const DANGEROUS_ARG_RULES: ReadonlyMap<
     'pip',
     {
       check: (args) => {
-        if (args.length > 0 && args[0] === 'install') {
+        // Find 'install' subcommand anywhere — pip allows global opts before it
+        // (e.g., pip --isolated install ...)
+        const installIdx = args.indexOf('install');
+        if (installIdx >= 0) {
           // Block installs from URLs or absolute paths outside workspace —
           // these can serve malicious packages with arbitrary setup.py code.
           // Normal PyPI installs (pip install flask) are allowed — PyPI has
           // its own security and the sandbox limits blast radius.
-          for (const a of args.slice(1)) {
+          for (const a of args.slice(installIdx + 1)) {
             if (
               a.startsWith('http://') ||
               a.startsWith('https://') ||
               a.startsWith('ftp://') ||
+              a.startsWith('file://') ||
               a.startsWith('git+') ||
               a.startsWith('svn+') ||
               a.startsWith('hg+') ||
@@ -172,7 +188,7 @@ export const DANGEROUS_ARG_RULES: ReadonlyMap<
                 'Use "pip install <package-name>" to install from PyPI instead.'
               );
             }
-            if (a.startsWith('/') && !a.startsWith('/workspace')) {
+            if (a.startsWith('/') && !isInsideWorkspace(a)) {
               return (
                 '"pip install" from a path outside the workspace is not allowed. ' +
                 'Use "pip install ./" or "pip install <package-name>" from PyPI instead.'
@@ -195,14 +211,14 @@ export const DANGEROUS_ARG_RULES: ReadonlyMap<
           const a = args[i];
           if (a === '-o' || a === '--output') {
             const target = args[i + 1] ?? '';
-            if (target.startsWith('/') && !target.startsWith('/workspace')) {
+            if (target.startsWith('/') && !isInsideWorkspace(target)) {
               return (
                 `"curl -o ${target}" writes outside the workspace. ` +
                 'Use "curl" without -o to print to stdout, or use -o with a workspace-relative path.'
               );
             }
           }
-          if (a.startsWith('-o/') && !a.startsWith('-o/workspace')) {
+          if (a.startsWith('-o/') && !isInsideWorkspace(a.slice(2))) {
             return (
               `"curl ${a}" writes outside the workspace. ` +
               'Use "curl" without -o or target a workspace-relative path.'
@@ -211,7 +227,7 @@ export const DANGEROUS_ARG_RULES: ReadonlyMap<
           // Equals-separated form: --output=/usr/bin/payload
           if (a.startsWith('--output=')) {
             const target = a.slice('--output='.length);
-            if (target.startsWith('/') && !target.startsWith('/workspace')) {
+            if (target.startsWith('/') && !isInsideWorkspace(target)) {
               return (
                 `"curl ${a}" writes outside the workspace. ` +
                 'Use "curl" without --output or target a workspace-relative path.'

@@ -147,6 +147,7 @@ class BubblewrapSandbox implements Sandbox {
     const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
     await mkdir(dir, { recursive: true });
     await writeFile(fullPath, content, 'utf-8');
+    await this.checkWorkspaceSize();
   }
 
   async readFile(relativePath: string): Promise<string> {
