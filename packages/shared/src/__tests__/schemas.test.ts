@@ -45,13 +45,31 @@ describe('memoryConfigSchema', () => {
 describe('sandboxConfigSchema', () => {
   test('applies all defaults', () => {
     const result = sandboxConfigSchema.parse({});
-    expect(result.allowedCommands).toContain('bash');
+    expect(result.allowedCommands).not.toContain('bash');
+    expect(result.allowedCommands).not.toContain('sh');
     expect(result.allowedCommands).toContain('git');
-    expect(result.deniedPatterns).toContain('rm -rf /');
+    expect(result.allowedCommands).toContain('npx');
+    expect(result.allowedCommands).toContain('bunx');
+    expect(result.allowedCommands).toContain('sort');
+    expect(result.allowedCommands).toContain('uniq');
+    expect(result.deniedPatterns).toHaveLength(3);
     expect(result.maxExecutionTimeS).toBe(60);
     expect(result.maxWorkspaceSizeMb).toBe(256);
     expect(result.networkAccess).toBe(true);
     expect(result.gitTokenEnvVar).toBeNull();
+  });
+
+  test('rejects ReDoS-vulnerable deniedPatterns (a+)+', () => {
+    expect(() => sandboxConfigSchema.parse({ deniedPatterns: ['(a+)+$'] })).toThrow('ReDoS');
+  });
+
+  test('rejects ReDoS-vulnerable deniedPatterns ([a-z]+)+', () => {
+    expect(() => sandboxConfigSchema.parse({ deniedPatterns: ['([a-z]+)+'] })).toThrow('ReDoS');
+  });
+
+  test('accepts safe deniedPatterns', () => {
+    const result = sandboxConfigSchema.parse({ deniedPatterns: ['\\brm\\b', 'mkfs'] });
+    expect(result.deniedPatterns).toEqual(['\\brm\\b', 'mkfs']);
   });
 
   test('rejects maxExecutionTimeS out of bounds', () => {

@@ -76,6 +76,11 @@ class BubblewrapSandbox implements Sandbox {
 
     const validation = this.validator.validateCommand(command);
     if (!validation.valid) {
+      logger.warn('Command rejected', {
+        sandboxId: this.id,
+        command,
+        reason: validation.reason,
+      });
       return { exitCode: 1, stdout: '', stderr: `Blocked: ${validation.reason}` };
     }
 
@@ -107,6 +112,9 @@ class BubblewrapSandbox implements Sandbox {
         stdoutLen: stdout.length,
         stderrLen: stderr.length,
       });
+
+      // Best-effort workspace size enforcement after each exec
+      await this.checkWorkspaceSize();
 
       return {
         exitCode,
@@ -165,6 +173,33 @@ class BubblewrapSandbox implements Sandbox {
     return collectEntries(fullPath, this.workspacePath, recursive);
   }
 
+  /**
+   * Best-effort workspace size check after command execution.
+   * Logs a warning if the workspace exceeds the configured limit.
+   */
+  private async checkWorkspaceSize(): Promise<void> {
+    try {
+      const maxBytes = this.config.maxWorkspaceSizeMb * 1024 * 1024;
+      const proc = Bun.spawn(['du', '-sb', this.workspacePath], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const output = await new Response(proc.stdout).text();
+      await proc.exited;
+      const sizeStr = output.split('\t')[0];
+      const size = Number.parseInt(sizeStr, 10);
+      if (!Number.isNaN(size) && size > maxBytes) {
+        logger.warn('Workspace size limit exceeded', {
+          sandboxId: this.id,
+          currentBytes: size,
+          limitBytes: maxBytes,
+        });
+      }
+    } catch {
+      // Best-effort — du may not be available
+    }
+  }
+
   async destroy(): Promise<void> {
     if (this.destroyed) return;
     this.destroyed = true;
@@ -180,6 +215,19 @@ class BubblewrapSandbox implements Sandbox {
     }
   }
 
+  /**
+   * Builds the bwrap argument list for sandboxed command execution.
+   *
+   * Isolation features:
+   * - PID and IPC namespace isolation (always on)
+   * - Network namespace isolation via `--unshare-net` when `networkAccess` is `false`
+   * - Workspace size enforcement via tmpfs `--size` limit based on `maxWorkspaceSizeMb`
+   * - Read-only system binds, writable workspace at `/workspace`
+   *
+   * @param command - The shell command to execute inside the sandbox
+   * @param extraEnv - Additional environment variables from the caller
+   * @returns Array of bwrap CLI arguments
+   */
   private buildBwrapArgs(command: string, extraEnv?: Record<string, string>): string[] {
     const args: string[] = [];
 
@@ -199,6 +247,14 @@ class BubblewrapSandbox implements Sandbox {
       '/workspace',
       '--unshare-pid',
       '--unshare-ipc',
+    );
+
+    // Network isolation: disable network access when configured
+    if (!this.config.networkAccess) {
+      args.push('--unshare-net');
+    }
+
+    args.push(
       '--die-with-parent',
       '--new-session',
       '--chdir',

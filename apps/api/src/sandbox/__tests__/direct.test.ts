@@ -4,8 +4,8 @@ import type { SandboxConfig } from '@personalclaw/shared';
 import { DirectProvider } from '../direct';
 
 const testConfig: SandboxConfig = {
-  allowedCommands: ['bash', 'sh', 'echo', 'cat', 'ls', 'mkdir', 'touch'],
-  deniedPatterns: ['rm -rf /'],
+  allowedCommands: ['echo', 'cat', 'ls', 'mkdir', 'touch', 'env'],
+  deniedPatterns: ['\\brm\\s+(-[a-z]*[rf][a-z]*\\s+)*\\/'],
   maxExecutionTimeS: 10,
   maxWorkspaceSizeMb: 64,
   networkAccess: true,
@@ -191,7 +191,7 @@ describe('DirectProvider', () => {
       });
       sandboxes.push(sandbox);
 
-      const result = await sandbox.exec('sh -c env');
+      const result = await sandbox.exec('env');
       expect(result.exitCode).toBe(0);
       expect(result.stdout).not.toContain('DATABASE_URL');
       expect(result.stdout).not.toContain('OPENAI_API_KEY');

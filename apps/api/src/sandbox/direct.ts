@@ -58,6 +58,11 @@ class DirectSandbox implements Sandbox {
 
     const validation = this.validator.validateCommand(command);
     if (!validation.valid) {
+      logger.warn('Command rejected', {
+        sandboxId: this.id,
+        command,
+        reason: validation.reason,
+      });
       return { exitCode: 1, stdout: '', stderr: `Blocked: ${validation.reason}` };
     }
 
