@@ -107,10 +107,10 @@
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] Add a `verifiedUserId` flag to the `ApprovalGateway` constructor in `apps/api/src/agent/approval-gateway.ts` — the flag indicates whether the userId was extracted from a verified platform context (Slack request signature) vs. an unverified source
-- [ ] T022 [US3] Update `checkApproval()` allowlist evaluation in `apps/api/src/agent/approval-gateway.ts` — when policy is `allowlist`, check `verifiedUserId` is true before comparing against `allowedUsers`. If `verifiedUserId` is false, fall through to `ask` policy instead.
-- [ ] T023 [US3] Update the Slack event handler in `apps/api/src/platforms/slack/events.ts` to pass `verifiedUserId: true` when constructing the `ApprovalGateway` (Slack Bolt verifies request signatures before events reach handlers)
-- [ ] T024 [US3] Add LogTape logging for identity verification failures in `apps/api/src/agent/approval-gateway.ts` — log when allowlist check is skipped due to unverified user identity
+- [x] T021 [US3] Add a `verifiedUserId` flag to the `ApprovalGateway` constructor in `apps/api/src/agent/approval-gateway.ts` — the flag indicates whether the userId was extracted from a verified platform context (Slack request signature) vs. an unverified source
+- [x] T022 [US3] Update `checkApproval()` allowlist evaluation in `apps/api/src/agent/approval-gateway.ts` — when policy is `allowlist`, check `verifiedUserId` is true before comparing against `allowedUsers`. If `verifiedUserId` is false, fall through to `ask` policy instead.
+- [x] T023 [US3] Updated in `apps/api/src/agent/pipeline.ts` (where ApprovalGateway is constructed) to pass `verifiedUserId: true` — all current invocations come through Slack Bolt which verifies request signatures.
+- [x] T024 [US3] Add LogTape logging for identity verification failures in `apps/api/src/agent/approval-gateway.ts` — log when allowlist check is skipped due to unverified user identity
 
 **Checkpoint**: Allowlist policies only auto-approve when user identity is platform-verified. Unverified identities fall back to manual approval.
 

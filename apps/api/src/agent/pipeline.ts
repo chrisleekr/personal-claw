@@ -165,12 +165,15 @@ export function loadToolsStage(toolRegistry: ToolRegistry): PipelineStage {
 }
 
 export const wrapApprovalStage: PipelineStage = async (ctx) => {
+  // verifiedUserId=true: all current invocations come through platform adapters
+  // (Slack Bolt) which verify request signatures before events reach handlers.
   const gateway = new ApprovalGateway(
     ctx.params.channelId,
     ctx.params.threadId,
     ctx.params.userId,
     ctx.params.adapter,
     ctx.safeToolNames,
+    true,
   );
 
   // Tools with "auto" approval policy should be treated as safe/autonomous

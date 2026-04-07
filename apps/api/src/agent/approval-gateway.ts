@@ -64,6 +64,7 @@ export class ApprovalGateway {
     private userId: string,
     private adapter: ChannelAdapter,
     private safeToolNames: Set<string> = new Set(),
+    private verifiedUserId = false,
   ) {}
 
   private async loadPolicies(): Promise<Map<string, ApprovalPolicyRow>> {
@@ -217,6 +218,14 @@ export class ApprovalGateway {
       }
 
       if (policy === 'allowlist') {
+        if (!this.verifiedUserId) {
+          logger.info('Allowlist check skipped: user identity not verified, falling back to ask', {
+            toolName,
+            channelId: this.channelId,
+            userId: this.userId,
+          });
+          return this.queueForApproval(toolName, args, 'allowlist-unverified');
+        }
         const allowed = row.allowedUsers.includes(this.userId);
         await this.emitToolHook(toolName, args, allowed, policy);
         return allowed;
