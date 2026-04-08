@@ -31,9 +31,6 @@ TypeScript 5.7+ (strict mode, zero `any`): Follow standard conventions
 
 ## Recent Changes
 - 20260407-224250-fix-auth-bypass: Added TypeScript 5.7+ (strict mode, zero `any`) + Bun 1.3.9 + Hono (API), Bun ServerWebSocket, Drizzle ORM, LogTape, Zod, `@personalclaw/shared`
-- 20260407-224250-fix-auth-bypass: Added TypeScript 5.7+ (strict mode, zero `any`) + Bun 1.3.9 + Hono (API), Bun ServerWebSocket, Drizzle ORM, LogTape, Zod, `@personalclaw/shared`
-- 20260407-224250-fix-auth-bypass: Added TypeScript 5.7+ (strict mode, zero `any`) + Bun 1.3.9 + Hono (API), Bun ServerWebSocket, Drizzle ORM, LogTape, Zod, `@personalclaw/shared`
-
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

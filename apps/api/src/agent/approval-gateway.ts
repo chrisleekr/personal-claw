@@ -222,7 +222,7 @@ export class ApprovalGateway {
           logger.info('Allowlist check skipped: user identity not verified, falling back to ask', {
             toolName,
             channelId: this.channelId,
-            userId: this.userId,
+            externalUserId: this.userId,
           });
           return this.queueForApproval(toolName, args, 'allowlist-unverified');
         }
@@ -247,6 +247,7 @@ export class ApprovalGateway {
         logger.info('Plan approval expired', {
           toolName,
           channelId: this.channelId,
+          externalUserId: this.userId,
           elapsedMs: elapsed,
           timeoutMs,
         });
@@ -254,6 +255,7 @@ export class ApprovalGateway {
         logger.info('Tool not in approved plan scope', {
           toolName,
           channelId: this.channelId,
+          externalUserId: this.userId,
           approvedTools: [...approvedToolNames],
         });
       }
@@ -267,6 +269,7 @@ export class ApprovalGateway {
     logger.info('No policy matched, queuing for user approval', {
       toolName,
       channelId: this.channelId,
+      externalUserId: this.userId,
       hasPlanApproval: !!this.planApprovalState,
       isSafeTool: this.safeToolNames.has(toolName),
     });

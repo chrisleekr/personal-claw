@@ -276,3 +276,32 @@ With multiple developers after Phase 1:
 - The `conversations.ts` pattern is the reference implementation for US6 channel scoping checks
 - US4, US2, US3 MUST be implemented sequentially (all modify `checkApproval()` in `approval-gateway.ts`)
 - "Channel scoping" (not "ownership") is the correct terminology given the shared `API_SECRET` auth model
+
+---
+
+## Phase 11: PR Review Fixes
+
+**Purpose**: Address valid findings from Copilot and CodeRabbit PR reviews on #24.
+
+### Code Fixes
+
+- [x] T044 [P] Guard against empty `userId` in `apps/api/src/platforms/slack/bolt.ts` — if `message.user` is missing or empty, respond with an error and return early instead of passing `''` to `handleSlashCommand`. Prevents `checkAdmin()` from storing `''` as a channel admin.
+- [x] T045 [P] Remove partial ticket logging in `apps/api/src/routes/ws-ticket.ts` — replace `ticket.slice(0, 8)` with a non-sensitive counter or omit the ticket value entirely from the log.
+- [x] T046 [P] Add `externalUserId: this.userId` to all new approval log calls in `apps/api/src/agent/approval-gateway.ts` — lines ~222-226 (allowlist unverified), ~247-252 (plan expired), ~254-258 (tool not in scope), ~262-265 (no policy matched). Required by Constitution VII.
+
+### Documentation Fixes
+
+- [x] T047 [P] Deduplicate CLAUDE.md `## Recent Changes` section — remove the two duplicate `20260407-224250-fix-auth-bypass` entries, keep one.
+- [x] T048 [P] Update `specs/20260407-224250-fix-auth-bypass/contracts/api-changes.md` CRUD table (lines 55-68) — change all mutation routes from `/:id` to `/:channelId/:id` path pattern to match actual implementation.
+- [x] T049 [P] Update `specs/20260407-224250-fix-auth-bypass/quickstart.md` section 4 (line 66) — change `DELETE /api/memories/:id?channelId=uuid` to `DELETE /api/memories/:channelId/:id` to match actual implementation.
+
+### Validation
+
+- [x] T050 Run `bun run check` and verify all tests pass after fixes.
+
+---
+
+## Dependencies (Phase 11)
+
+- T044, T045, T046, T047, T048, T049 are all independent and can run in parallel
+- T050 depends on all above completing

@@ -60,12 +60,12 @@ await fetch('/api/approvals', {
 });
 ```
 
-### 4. Channel Ownership on CRUD
+### 4. Channel Scoping on CRUD
 
 **Before**: `DELETE /api/memories/:id` — any authenticated user.
-**After**: `DELETE /api/memories/:id?channelId=uuid` — must match entity's channel.
+**After**: `DELETE /api/memories/:channelId/:id` — `channelId` path param verified against entity.
 
-All mutation endpoints now require `channelId` and verify it matches the entity.
+All mutation endpoints now use `/:channelId/:id` path parameters. The server verifies the entity belongs to the declared channel.
 
 ### 5. Slash Command Permissions
 

@@ -51,11 +51,16 @@ export async function initSlackBot() {
     });
 
     if (text.startsWith('/pclaw ')) {
+      const slackUserId = 'user' in message ? (message.user as string) : '';
+      if (!slackUserId) {
+        await say({ text: 'Unable to identify user. Please try again.', thread_ts: threadId });
+        return;
+      }
       await handleSlashCommand({
         text,
         threadTs: threadId,
         channelId: message.channel,
-        userId: 'user' in message ? (message.user as string) : '',
+        userId: slackUserId,
         say,
       });
       return;

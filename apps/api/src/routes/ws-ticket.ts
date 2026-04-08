@@ -52,6 +52,6 @@ export const wsTicketRoute = new Hono();
 wsTicketRoute.get('/', (c) => {
   const ticket = crypto.randomUUID();
   wsTicketStore.set(ticket, { createdAt: Date.now(), used: false });
-  logger.debug('Issued WS ticket', { ticket: ticket.slice(0, 8) });
+  logger.debug('Issued WS ticket', { storeSize: wsTicketStore.size });
   return c.json({ data: { ticket, expiresIn: WS_TICKET_TTL_MS / 1000 } });
 });

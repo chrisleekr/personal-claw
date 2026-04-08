@@ -46,26 +46,26 @@ Only sent to clients subscribed to the matching `channelId`.
 
 ## CRUD Endpoints — Channel Ownership Required
 
-All mutation endpoints now require `channelId` in the request and verify ownership. Requests targeting entities belonging to a different channel receive `404 Not Found` (not `403`, to prevent enumeration).
+All mutation endpoints now use `/:channelId/:id` path parameters. The server verifies that the entity's `channelId` matches the path parameter. Mismatches return `404 Not Found` (not `403`, to prevent enumeration).
 
 ### Affected Endpoints
 
 | Method | Path | Change |
 |--------|------|--------|
-| PATCH | `/api/memories/:id` | Body must include `channelId`; verified against entity |
-| DELETE | `/api/memories/:id` | Query param `channelId` required; verified against entity |
+| PATCH | `/api/memories/:channelId/:id` | `channelId` path param; verified against entity |
+| DELETE | `/api/memories/:channelId/:id` | `channelId` path param; verified against entity |
 | POST | `/api/approvals` | Body `channelId` verified (already present, now validated) |
-| PUT | `/api/approvals/:id` | Body must include `channelId`; verified against entity |
-| DELETE | `/api/approvals/:id` | Query param `channelId` required; verified against entity |
+| PUT | `/api/approvals/:channelId/:id` | `channelId` path param; verified against entity |
+| DELETE | `/api/approvals/:channelId/:id` | `channelId` path param; verified against entity |
 | POST | `/api/schedules` | Body `channelId` verified |
-| PUT | `/api/schedules/:id` | Body must include `channelId`; verified against entity |
-| DELETE | `/api/schedules/:id` | Query param `channelId` required; verified against entity |
+| PUT | `/api/schedules/:channelId/:id` | `channelId` path param; verified against entity |
+| DELETE | `/api/schedules/:channelId/:id` | `channelId` path param; verified against entity |
 | POST | `/api/skills` | Body `channelId` verified |
-| PUT | `/api/skills/:id` | Body must include `channelId`; verified against entity |
-| DELETE | `/api/skills/:id` | Query param `channelId` required; verified against entity |
+| PUT | `/api/skills/:channelId/:id` | `channelId` path param; verified against entity |
+| DELETE | `/api/skills/:channelId/:id` | `channelId` path param; verified against entity |
 | POST | `/api/mcp` | Body `channelId` verified |
-| PUT | `/api/mcp/:id` | Body must include `channelId`; verified against entity |
-| DELETE | `/api/mcp/:id` | Query param `channelId` required; verified against entity |
+| PUT | `/api/mcp/:channelId/:id` | `channelId` path param; verified against entity |
+| DELETE | `/api/mcp/:channelId/:id` | `channelId` path param; verified against entity |
 
 ### Error Responses
 
