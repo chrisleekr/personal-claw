@@ -1,3 +1,10 @@
+## [1.2.4](https://github.com/chrisleekr/personal-claw/compare/v1.2.3...v1.2.4) (2026-04-08)
+
+
+### Bug Fixes
+
+* **research:** increase max-turns from 20 to 40 for Opus deep research ([b16b18c](https://github.com/chrisleekr/personal-claw/commit/b16b18ccdd3b1398204383281b6f8577fc523ddc))
+
 ## [1.2.3](https://github.com/chrisleekr/personal-claw/compare/v1.2.2...v1.2.3) (2026-04-08)
 
 
