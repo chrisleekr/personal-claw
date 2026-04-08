@@ -50,12 +50,12 @@ jobs:
     steps:
       - name: Validate required secrets
         env:
-          HAS_ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+          HAS_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
           HAS_PAT: ${{ secrets.PERSONAL_ACCESS_TOKEN != '' }}
         run: |
           missing=""
-          if [ "$HAS_ANTHROPIC_KEY" != "true" ]; then
-            missing="${missing} ANTHROPIC_API_KEY"
+          if [ "$HAS_OAUTH_TOKEN" != "true" ]; then
+            missing="${missing} CLAUDE_CODE_OAUTH_TOKEN"
           fi
           if [ "$HAS_PAT" != "true" ]; then
             missing="${missing} PERSONAL_ACCESS_TOKEN"
@@ -72,12 +72,14 @@ jobs:
 
       - name: Run research with Claude Code
         uses: anthropics/claude-code-action@v1
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           allowed_bots: "*"
           # track_progress: true — not supported for schedule/workflow_dispatch events
           claude_args: |
+            --model opus
             --max-turns 20
             --allowedTools "WebSearch,WebFetch,Read,Glob,Grep,Bash(gh issue create:*),Bash(gh issue list:*),Bash(gh label create:*),Bash(git log:*),Bash(cat:*),Bash(date:*)"
             --disallowedTools ""
