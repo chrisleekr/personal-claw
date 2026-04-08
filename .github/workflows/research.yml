@@ -25,7 +25,8 @@ name: Scheduled Research
 
 on:
   schedule:
-    - cron: "0 22 * * *" # 8 AM AEST (UTC+10)
+    - cron: "0 22 * * *" # 8 AM AEST
+    - cron: "0 2 * * *"  # 12 PM AEST
   workflow_dispatch:
     inputs:
       focus_area:
@@ -80,7 +81,7 @@ jobs:
             echo "area=$FOCUS_AREA_INPUT" >> "$GITHUB_OUTPUT"
             echo "Selected area from input: $FOCUS_AREA_INPUT"
           else
-            areas=("agent-engine" "memory" "tools" "security" "performance" "infrastructure")
+            areas=("agent-engine" "memory" "tools" "security" "performance" "infrastructure" "bug" "observability" "cost" "testing")
             random_index=$((RANDOM % ${#areas[@]}))
             selected="${areas[$random_index]}"
             echo "area=$selected" >> "$GITHUB_OUTPUT"
@@ -154,14 +155,22 @@ jobs:
                gh label create research --description "Automated research finding" --color 0e8a16 --force
                gh label create [area] --color 1d76db --force
                ```
-               Area labels (use ONLY these): memory, security, performance, agent-engine, tools, infrastructure
+               Area labels (use ONLY these): agent-engine, memory, tools, security, performance, infrastructure, bug, observability, cost, testing
             2. Write issue body to temp file and create:
                ```
                cat > /tmp/issue-body.md << 'ISSUE_EOF'
                [issue body here]
                ISSUE_EOF
-               gh issue create --title "research: [area] - [summary]" --label "research,[area]" --body-file /tmp/issue-body.md
+               gh issue create --title "[type]([area]): [summary]" --label "research,[area]" --body-file /tmp/issue-body.md
                ```
+               Title uses Conventional Commits style — pick the type based on your finding:
+               fix, feat, perf, refactor, security, test, docs
+               Examples:
+               - fix(memory): pgvector query returns stale embeddings after compaction
+               - feat(agent-engine): add circuit breaker for provider fallback
+               - perf(memory): batch pgvector inserts to reduce write latency
+               - security(tools): sandbox escape via symlink in CLI executor
+               - test(agent-engine): no tests for approval gateway timeout
 
             ## Issue Body Template
 
