@@ -1,0 +1,240 @@
+# Scheduled Research Workflow
+#
+# Runs every 12 hours (and on-demand via workflow_dispatch) to research
+# improvements for the PersonalClaw autonomous agent platform.
+#
+# Produces exactly ONE deeply researched GitHub issue per run.
+# No automated code changes — findings are issues for manual triage.
+#
+# Design decisions and workarounds:
+# - PAT instead of OIDC: Cron-triggered workflows fail OIDC token exchange
+#   with 401 Unauthorized. See https://github.com/anthropics/claude-code-action/issues/814
+# - allowed_bots: '*': The checkHumanActor function blocks scheduled workflows.
+#   Fixed in PR #916. See https://github.com/anthropics/claude-code-action/issues/900
+# - --disallowedTools "": WebSearch and WebFetch are disabled by default in the action.
+#   Must explicitly allow them and clear the disallowed list.
+#   See https://github.com/anthropics/claude-code-action/issues/690
+# - --max-turns 20: Caps cost per run. With 1 issue per run and 12-hour intervals,
+#   this gives ~40 turns/day of API usage. 20 turns is sufficient for deep analysis
+#   of one finding (codebase reading + web search + diagram + issue creation).
+# - One issue per run: Enables deep analysis with proper Mermaid diagrams and
+#   thorough references, rather than many shallow findings.
+
+name: Scheduled Research
+
+on:
+  schedule:
+    - cron: "0 */12 * * *"
+  workflow_dispatch:
+    inputs:
+      focus_area:
+        description: "Area to focus research on (e.g., 'memory system', 'security', 'performance')"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write # Required by claude-code-action even with PAT auth
+
+concurrency:
+  group: research-workflow
+  cancel-in-progress: false
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Validate required secrets
+        env:
+          HAS_ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+          HAS_PAT: ${{ secrets.PERSONAL_ACCESS_TOKEN != '' }}
+        run: |
+          missing=""
+          if [ "$HAS_ANTHROPIC_KEY" != "true" ]; then
+            missing="${missing} ANTHROPIC_API_KEY"
+          fi
+          if [ "$HAS_PAT" != "true" ]; then
+            missing="${missing} PERSONAL_ACCESS_TOKEN"
+          fi
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required secrets:${missing}. Add them at Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run research with Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          allowed_bots: "*"
+          track_progress: true
+          claude_args: |
+            --max-turns 20
+            --allowedTools "WebSearch,WebFetch,Read,Glob,Grep,Bash(gh issue create:*),Bash(gh issue list:*),Bash(gh label create:*),Bash(git log:*),Bash(cat:*),Bash(date:*)"
+            --disallowedTools ""
+          prompt: |
+            REPO: ${{ github.repository }}
+            FOCUS_AREA: ${{ github.event.inputs.focus_area || '' }}
+            TRIGGER: ${{ github.event_name }}
+
+            ## Mission
+
+            You are a principal software engineer researching improvements for the PersonalClaw
+            autonomous agent platform. Your mission is to **improve this agent toward full autonomy** —
+            every finding must move the platform closer to operating independently without human
+            intervention.
+
+            ## Quality Gate
+
+            Every finding you propose MUST pass ALL three criteria. If a finding fails any one
+            of them, do NOT suggest it. Find a different finding or report no findings.
+
+            1. **Feasible**: Implementable within the current codebase and tech stack
+               (TypeScript, Bun, Hono, pgvector, Vercel AI SDK). No theoretical suggestions
+               or ideas requiring technology that does not exist.
+            2. **Extendable**: Builds on existing architecture rather than requiring rewrites.
+               Each improvement should compose with previous improvements.
+            3. **100% Accurate**: Every claim must be verifiable. File paths, function names,
+               and line numbers MUST be real — verify them by reading the actual files.
+               External references MUST link to actual documentation. No hallucinated
+               libraries or APIs.
+
+            ## Research Scope
+
+            If FOCUS_AREA is provided and non-empty, focus your research EXCLUSIVELY on that area.
+            If FOCUS_AREA is empty or this is a scheduled run, perform general-purpose research
+            across the entire platform.
+
+            Perform HYBRID research:
+            1. **Internal analysis**: Read the codebase thoroughly — analyze architecture, check for
+               bugs, security concerns, performance issues, and improvement opportunities.
+               Focus on areas that would increase the agent's autonomy.
+            2. **Recent changes**: Run `git log --oneline -20` to see recent commits. Areas with
+               active changes are good candidates for improvement — they may have regressions,
+               incomplete work, or follow-up opportunities.
+            3. **External research**: Use WebSearch to find current best practices for AI agent
+               platforms, new libraries, design patterns, and ecosystem updates relevant to this
+               project's stack.
+
+            Spend your time going deep on one area rather than shallow across many.
+
+            **Rotation** (only when FOCUS_AREA is empty): Do NOT always research the same area.
+            Vary your focus across runs. Check what areas previous research issues have covered
+            (by scanning existing issue titles) and deliberately explore a DIFFERENT area this run.
+            When FOCUS_AREA is provided, ignore rotation and focus on the requested area.
+
+            ## Before Creating an Issue
+
+            1. First, ensure labels exist (these commands are idempotent):
+               ```
+               gh label create research --description "Automated research finding" --color 0e8a16 --force
+               ```
+
+            2. Also create the area-specific label you will use:
+               ```
+               gh label create [area] --color 1d76db --force
+               ```
+               Area labels (use ONLY these — never use raw focus_area as a label):
+               memory, security, performance, agent-engine, tools, infrastructure
+
+            3. Check ALL existing research issues (open AND closed) to avoid duplicates:
+               ```
+               gh issue list --label research --state all --limit 500 --json title,body,state
+               ```
+               Compare your finding against ALL research issues by title and topic.
+               - If an open issue already covers your finding — skip it, find something else.
+               - If a closed issue covers your finding — it was already addressed. Skip it.
+               If all significant findings are already tracked, report that instead.
+
+            ## Creating the Issue
+
+            Create exactly ONE GitHub issue. Focus deeply on your single highest-impact finding.
+
+            **Title format**: `research: [area] - [brief summary]`
+            Examples:
+            - `research: memory - pgvector HNSW index tuning for recall latency`
+            - `research: security - MCP tool input sanitization gap in stdio transport`
+
+            **Creating the issue**: Write the issue body to a temp file and use `--body-file`
+            to avoid shell argument length limits (Mermaid diagrams can be long):
+            ```
+            cat > /tmp/issue-body.md << 'ISSUE_EOF'
+            ... issue body content ...
+            ISSUE_EOF
+            gh issue create --title "research: [area] - [summary]" --label "research,[area]" --body-file /tmp/issue-body.md
+            ```
+
+            **Issue body** — use this EXACT structure in the file:
+
+            ## Finding
+
+            [Thorough description of what was discovered. Be specific — reference exact file paths,
+            function names, line numbers. Explain the current behavior and what could be improved.
+            Explain how this improvement moves the agent toward greater autonomy.]
+
+            ## Diagram
+
+            [MANDATORY Mermaid diagram that visually explains the finding.
+            Follow these GitHub-compatible Mermaid rules strictly:
+            - Use classDef with high-contrast hex color pairs meeting WCAG 2 AA 4.5:1 ratio
+            - Use <br/> for new lines, never \n
+            - Avoid parentheses in node labels — they break Mermaid syntax
+            - Use :::className inline syntax, e.g. NodeId["label"]:::styleName
+            - Do NOT use multiple subgraph blocks — GitHub renderer fails
+            - Use descriptive node IDs with 3+ characters
+            - Choose the appropriate type: graph LR/TD, sequenceDiagram, stateDiagram-v2, or classDiagram
+            The diagram must EXPLAIN the finding, not just decorate the issue.]
+
+            ## Rationale
+
+            [Why this matters — concrete impact on the agent platform. Include metrics or estimates
+            where possible.]
+
+            ## References
+
+            - **Internal**: [exact file paths, line numbers, function names you verified by reading]
+            - **External**: [URLs to documentation, blog posts, papers found via WebSearch]
+
+            ## Suggested Next Steps
+
+            1. [Concrete, actionable step]
+            2. [Alternative approach if applicable]
+
+            ## Areas Evaluated
+
+            [List ALL areas you analyzed during this run, including those where no issue was warranted.
+            This tracks research coverage over time.]
+
+            ---
+            *Generated by scheduled research workflow on [YYYY-MM-DD — get the current date via `date +%Y-%m-%d` command]*
+
+            ## If No Finding
+
+            If after thorough analysis you find no actionable improvement that passes the quality
+            gate and is not already covered by an existing issue (open or closed), do NOT create an issue.
+            Instead, output a summary:
+            - What areas you analyzed
+            - What web searches you performed
+            - Why no finding met the quality gate (feasible + extendable + 100% accurate)
+
+            ## Rules
+
+            - DO NOT modify any files in the repository
+            - DO NOT create branches or pull requests
+            - ONLY create GitHub issues via `gh issue create`
+            - Create exactly ONE issue per run — no more
+            - Focus on depth over breadth
+            - ALWAYS include a Mermaid diagram that explains the finding visually
+            - ALWAYS verify file paths and function names by reading the actual files before citing them
+            - Prioritize findings by autonomy impact: self-healing > self-improvement > security > performance > architecture
+            - Reference specific file paths and line numbers for internal code
+            - Include URLs for external references found via WebSearch
