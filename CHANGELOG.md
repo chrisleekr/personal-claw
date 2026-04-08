@@ -1,3 +1,11 @@
+## [1.2.5](https://github.com/chrisleekr/personal-claw/compare/v1.2.4...v1.2.5) (2026-04-08)
+
+
+### Bug Fixes
+
+* **research:** increase max-turns to 80 for thorough Opus research ([b2b997a](https://github.com/chrisleekr/personal-claw/commit/b2b997a4249b535a0b9e53bcc6bc6888aa9f17b6))
+* **research:** optimize prompt for turn efficiency and daily schedule ([cf71a1c](https://github.com/chrisleekr/personal-claw/commit/cf71a1c5a8fa7d1b0d68551b1a545beda499d1a1))
+
 ## [1.2.4](https://github.com/chrisleekr/personal-claw/compare/v1.2.3...v1.2.4) (2026-04-08)
 
 
