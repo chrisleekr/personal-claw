@@ -1,3 +1,10 @@
+## [1.2.6](https://github.com/chrisleekr/personal-claw/compare/v1.2.5...v1.2.6) (2026-04-08)
+
+
+### Bug Fixes
+
+* **research:** add random area selection, fix Mermaid classDef syntax ([939c826](https://github.com/chrisleekr/personal-claw/commit/939c82607ac7bb892f68d5d29ded0d671202962e)), closes [#hex](https://github.com/chrisleekr/personal-claw/issues/hex) [#hex](https://github.com/chrisleekr/personal-claw/issues/hex)
+
 ## [1.2.5](https://github.com/chrisleekr/personal-claw/compare/v1.2.4...v1.2.5) (2026-04-08)
 
 
