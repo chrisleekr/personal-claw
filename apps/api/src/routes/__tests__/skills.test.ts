@@ -141,10 +141,11 @@ describe('Skills Routes', () => {
     expect(body.error).toBe('VALIDATION_ERROR');
   });
 
-  test('PUT /:id updates skill', async () => {
+  test('PUT /:channelId/:id updates skill', async () => {
+    mockRows = [MOCK_SKILL];
     mockUpdateRows = [{ ...MOCK_SKILL, name: 'deploy-staging' }];
     const res = await app.request(
-      jsonReq('/api/skills/skill-001', {
+      jsonReq(`/api/skills/${CHANNEL_ID}/skill-001`, {
         method: 'PUT',
         body: JSON.stringify({ name: 'deploy-staging' }),
       }),
@@ -154,10 +155,10 @@ describe('Skills Routes', () => {
     expect(body.data.name).toBe('deploy-staging');
   });
 
-  test('PUT /:id returns 404 when not found', async () => {
+  test('PUT /:channelId/:id returns 404 when not found', async () => {
     mockUpdateRows = [];
     const res = await app.request(
-      jsonReq('/api/skills/nonexistent', {
+      jsonReq(`/api/skills/${CHANNEL_ID}/nonexistent`, {
         method: 'PUT',
         body: JSON.stringify({ name: 'test' }),
       }),
@@ -165,17 +166,18 @@ describe('Skills Routes', () => {
     expect(res.status).toBe(404);
   });
 
-  test('DELETE /:id deletes skill', async () => {
+  test('DELETE /:channelId/:id deletes skill', async () => {
+    mockRows = [MOCK_SKILL];
     mockDeleteRows = [MOCK_SKILL];
-    const res = await app.request('/api/skills/skill-001', { method: 'DELETE' });
+    const res = await app.request(`/api/skills/${CHANNEL_ID}/skill-001`, { method: 'DELETE' });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.deleted).toBe(true);
   });
 
-  test('DELETE /:id returns 404 when not found', async () => {
+  test('DELETE /:channelId/:id returns 404 when not found', async () => {
     mockDeleteRows = [];
-    const res = await app.request('/api/skills/nonexistent', { method: 'DELETE' });
+    const res = await app.request(`/api/skills/${CHANNEL_ID}/nonexistent`, { method: 'DELETE' });
     expect(res.status).toBe(404);
   });
 });

@@ -18,13 +18,17 @@ approvalsRoute.post('/', async (c) => {
   return c.json({ data: row }, 201);
 });
 
-approvalsRoute.put('/:id', async (c) => {
+approvalsRoute.put('/:channelId/:id', async (c) => {
   const input = updateApprovalPolicySchema.parse(await c.req.json());
-  const row = await approvalService.update(c.req.param('id'), input);
+  const row = await approvalService.updateScoped(
+    c.req.param('channelId'),
+    c.req.param('id'),
+    input,
+  );
   return c.json({ data: row });
 });
 
-approvalsRoute.delete('/:id', async (c) => {
-  await approvalService.delete(c.req.param('id'));
+approvalsRoute.delete('/:channelId/:id', async (c) => {
+  await approvalService.deleteScoped(c.req.param('channelId'), c.req.param('id'));
   return c.json({ data: { deleted: true } });
 });

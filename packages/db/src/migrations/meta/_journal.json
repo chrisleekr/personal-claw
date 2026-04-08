@@ -99,6 +99,13 @@
       "when": 1772285583583,
       "tag": "0013_drop_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1775568086736,
+      "tag": "0014_stale_namora",
+      "breakpoints": true
     }
   ]
 }

@@ -116,10 +116,11 @@ describe('Approvals Routes', () => {
     expect(body.error).toBe('VALIDATION_ERROR');
   });
 
-  test('PUT /:id updates policy', async () => {
+  test('PUT /:channelId/:id updates policy', async () => {
+    mockRows = [MOCK_POLICY];
     mockUpdateRows = [{ ...MOCK_POLICY, policy: 'deny' }];
     const res = await app.request(
-      jsonReq('/api/approvals/ap-001', {
+      jsonReq(`/api/approvals/${CHANNEL_ID}/ap-001`, {
         method: 'PUT',
         body: JSON.stringify({ policy: 'deny' }),
       }),
@@ -129,10 +130,10 @@ describe('Approvals Routes', () => {
     expect(body.data.policy).toBe('deny');
   });
 
-  test('PUT /:id returns 404 when not found', async () => {
+  test('PUT /:channelId/:id returns 404 when not found', async () => {
     mockUpdateRows = [];
     const res = await app.request(
-      jsonReq('/api/approvals/nonexistent', {
+      jsonReq(`/api/approvals/${CHANNEL_ID}/nonexistent`, {
         method: 'PUT',
         body: JSON.stringify({ policy: 'auto' }),
       }),
@@ -140,17 +141,18 @@ describe('Approvals Routes', () => {
     expect(res.status).toBe(404);
   });
 
-  test('DELETE /:id deletes policy', async () => {
+  test('DELETE /:channelId/:id deletes policy', async () => {
+    mockRows = [MOCK_POLICY];
     mockDeleteRows = [MOCK_POLICY];
-    const res = await app.request('/api/approvals/ap-001', { method: 'DELETE' });
+    const res = await app.request(`/api/approvals/${CHANNEL_ID}/ap-001`, { method: 'DELETE' });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.deleted).toBe(true);
   });
 
-  test('DELETE /:id returns 404 when not found', async () => {
+  test('DELETE /:channelId/:id returns 404 when not found', async () => {
     mockDeleteRows = [];
-    const res = await app.request('/api/approvals/nonexistent', { method: 'DELETE' });
+    const res = await app.request(`/api/approvals/${CHANNEL_ID}/nonexistent`, { method: 'DELETE' });
     expect(res.status).toBe(404);
   });
 });

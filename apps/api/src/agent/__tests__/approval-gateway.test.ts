@@ -242,18 +242,32 @@ describe('ApprovalGateway.checkApproval', () => {
     expect(result).toBe(false);
   });
 
-  test('allowlist policy approves matching user', async () => {
+  test('allowlist policy approves matching user with verified identity', async () => {
     mockPolicyRows = [
       { toolName: 'deploy__*', policy: 'allowlist', allowedUsers: ['user-1', 'user-2'] },
     ];
-    const gateway = new ApprovalGateway('ch-001', 'thread-1', 'user-1', makeMockAdapter());
+    const gateway = new ApprovalGateway(
+      'ch-001',
+      'thread-1',
+      'user-1',
+      makeMockAdapter(),
+      new Set(),
+      true,
+    );
 
     expect(await gateway.checkApproval('deploy__production', {})).toBe(true);
   });
 
-  test('allowlist policy denies non-matching user', async () => {
+  test('allowlist policy denies non-matching user with verified identity', async () => {
     mockPolicyRows = [{ toolName: 'deploy__*', policy: 'allowlist', allowedUsers: ['user-2'] }];
-    const gateway = new ApprovalGateway('ch-001', 'thread-1', 'user-1', makeMockAdapter());
+    const gateway = new ApprovalGateway(
+      'ch-001',
+      'thread-1',
+      'user-1',
+      makeMockAdapter(),
+      new Set(),
+      true,
+    );
 
     expect(await gateway.checkApproval('deploy__production', {})).toBe(false);
   });

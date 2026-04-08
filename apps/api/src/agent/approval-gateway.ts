@@ -1,6 +1,6 @@
 import { getLogger } from '@logtape/logtape';
-import { approvalPolicies, eq } from '@personalclaw/db';
-import type { ApprovalPolicy } from '@personalclaw/shared';
+import { approvalPolicies, channels, eq } from '@personalclaw/db';
+import type { ApprovalPolicy, PlanApprovalState } from '@personalclaw/shared';
 import type { ToolExecutionOptions, ToolSet } from 'ai';
 import { tool } from 'ai';
 import { z } from 'zod';
@@ -50,7 +50,7 @@ interface PendingBatchEntry {
 }
 
 export class ApprovalGateway {
-  planApproved = false;
+  planApprovalState: PlanApprovalState | null = null;
   lastPlan: DismissedPlan | null = null;
   readonly toolTimings = new Map<string, number>();
   private policyCache: Map<string, ApprovalPolicyRow> | null = null;
@@ -64,6 +64,7 @@ export class ApprovalGateway {
     private userId: string,
     private adapter: ChannelAdapter,
     private safeToolNames: Set<string> = new Set(),
+    private verifiedUserId = false,
   ) {}
 
   private async loadPolicies(): Promise<Map<string, ApprovalPolicyRow>> {
@@ -217,6 +218,14 @@ export class ApprovalGateway {
       }
 
       if (policy === 'allowlist') {
+        if (!this.verifiedUserId) {
+          logger.info('Allowlist check skipped: user identity not verified, falling back to ask', {
+            toolName,
+            channelId: this.channelId,
+            externalUserId: this.userId,
+          });
+          return this.queueForApproval(toolName, args, 'allowlist-unverified');
+        }
         const allowed = row.allowedUsers.includes(this.userId);
         await this.emitToolHook(toolName, args, allowed, policy);
         return allowed;
@@ -227,9 +236,29 @@ export class ApprovalGateway {
       }
     }
 
-    if (this.planApproved) {
-      await this.emitToolHook(toolName, args, true, 'plan');
-      return true;
+    if (this.planApprovalState) {
+      const { approvedToolNames, approvedAt, timeoutMs } = this.planApprovalState;
+      const elapsed = Date.now() - approvedAt;
+      if (elapsed < timeoutMs && approvedToolNames.has(toolName)) {
+        await this.emitToolHook(toolName, args, true, 'plan');
+        return true;
+      }
+      if (elapsed >= timeoutMs) {
+        logger.info('Plan approval expired', {
+          toolName,
+          channelId: this.channelId,
+          externalUserId: this.userId,
+          elapsedMs: elapsed,
+          timeoutMs,
+        });
+      } else {
+        logger.info('Tool not in approved plan scope', {
+          toolName,
+          channelId: this.channelId,
+          externalUserId: this.userId,
+          approvedTools: [...approvedToolNames],
+        });
+      }
     }
 
     if (this.safeToolNames.has(toolName)) {
@@ -237,10 +266,11 @@ export class ApprovalGateway {
       return true;
     }
 
-    logger.debug('No policy matched, queuing for user approval', {
+    logger.info('No policy matched, queuing for user approval', {
       toolName,
       channelId: this.channelId,
-      planApproved: this.planApproved,
+      externalUserId: this.userId,
+      hasPlanApproval: !!this.planApprovalState,
       isSafeTool: this.safeToolNames.has(toolName),
     });
     return this.queueForApproval(toolName, args, 'default');
@@ -286,6 +316,16 @@ export class ApprovalGateway {
     return wrapped;
   }
 
+  /** Fetches the channel's approval timeout from the database. */
+  private async getApprovalTimeoutMs(): Promise<number> {
+    const db = getDb();
+    const [row] = await db
+      .select({ approvalTimeoutMs: channels.approvalTimeoutMs })
+      .from(channels)
+      .where(eq(channels.id, this.channelId));
+    return row?.approvalTimeoutMs ?? 600_000;
+  }
+
   getConfirmPlanTool() {
     return tool({
       description:
@@ -297,8 +337,9 @@ export class ApprovalGateway {
         steps: z
           .array(z.string())
           .describe('Ordered list of steps you will take, including which tools you will call'),
+        toolNames: z.array(z.string()).describe('Exact tool names you intend to call in this plan'),
       }),
-      execute: async ({ summary, steps }) => {
+      execute: async ({ summary, steps, toolNames }) => {
         this.lastPlan = { summary, steps };
 
         const approved = await this.adapter.requestPlanApproval({
@@ -307,9 +348,18 @@ export class ApprovalGateway {
           steps,
         });
 
-        this.planApproved = approved;
-
         if (approved) {
+          const timeoutMs = await this.getApprovalTimeoutMs();
+          this.planApprovalState = {
+            approvedToolNames: new Set(toolNames),
+            approvedAt: Date.now(),
+            timeoutMs,
+          };
+          logger.info('Plan approved with scoped tools', {
+            channelId: this.channelId,
+            toolNames,
+            timeoutMs,
+          });
           return { approved: true, message: 'Plan approved. Proceed with the steps.' };
         }
         throw new PlanRejectedError('rejected');

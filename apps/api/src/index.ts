@@ -8,6 +8,7 @@ import { configWsHandler } from './config/hot-reload';
 import { initHeartbeats } from './cron/heartbeat';
 import { initCronRunner } from './cron/runner';
 import { errorHandler } from './errors/error-handler';
+import { consumeTicket } from './routes/ws-ticket';
 import './hooks/builtin/audit-trail';
 import './hooks/builtin/cost-log';
 import { shutdownEngine } from './agent/engine';
@@ -28,9 +29,11 @@ import { schedulesRoute } from './routes/schedules';
 import { skillStatsRoute } from './routes/skill-stats';
 import { skillsRoute } from './routes/skills';
 import { usageRoute } from './routes/usage';
+import { wsTicketRoute } from './routes/ws-ticket';
 import { errorDetails } from './utils/error-fmt';
 
 const logger = getLogger(['personalclaw', 'server']);
+const wsLogger = getLogger(['personalclaw', 'ws', 'auth']);
 
 const app = new Hono();
 
@@ -67,6 +70,7 @@ app.route('/api/usage', usageRoute);
 app.route('/api/memories', memoriesRoute);
 app.route('/api/conversations', conversationsRoute);
 app.route('/api/approvals', approvalsRoute);
+app.route('/api/ws-ticket', wsTicketRoute);
 
 const port = config.PORT;
 
@@ -109,7 +113,14 @@ export default {
   fetch(req: Request, server: Server<unknown>) {
     const url = new URL(req.url);
     if (url.pathname === '/ws/config-updates') {
-      if (server.upgrade(req, { data: {} })) return undefined;
+      const ticket = url.searchParams.get('ticket');
+      if (!ticket || !consumeTicket(ticket)) {
+        wsLogger.debug('WebSocket auth rejected: invalid or missing ticket', {
+          hasTicket: !!ticket,
+        });
+        return new Response('Unauthorized', { status: 401 });
+      }
+      if (server.upgrade(req, { data: { connectedAt: Date.now() } })) return undefined;
       return new Response('WebSocket upgrade failed', { status: 400 });
     }
     return app.fetch(req, server);

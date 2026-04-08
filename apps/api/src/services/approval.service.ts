@@ -43,4 +43,20 @@ export class ApprovalService {
     const [row] = await db.delete(approvalPolicies).where(eq(approvalPolicies.id, id)).returning();
     if (!row) throw new NotFoundError('Approval policy', id);
   }
+
+  async updateScoped(channelId: string, id: string, input: UpdateApprovalPolicyInput) {
+    const db = getDb();
+    const [existing] = await db.select().from(approvalPolicies).where(eq(approvalPolicies.id, id));
+    if (!existing) throw new NotFoundError('Approval policy', id);
+    if (existing.channelId !== channelId) throw new NotFoundError('Approval policy', id);
+    return this.update(id, input);
+  }
+
+  async deleteScoped(channelId: string, id: string) {
+    const db = getDb();
+    const [existing] = await db.select().from(approvalPolicies).where(eq(approvalPolicies.id, id));
+    if (!existing) throw new NotFoundError('Approval policy', id);
+    if (existing.channelId !== channelId) throw new NotFoundError('Approval policy', id);
+    return this.delete(id);
+  }
 }

@@ -71,6 +71,7 @@ function makeParams(text: string, overrides: Partial<SlashCommandParams> = {}): 
     text,
     threadTs: 'T_THREAD',
     channelId: 'C_SLACK',
+    userId: 'U_TEST_USER',
     say: makeSay(),
     ...overrides,
   };

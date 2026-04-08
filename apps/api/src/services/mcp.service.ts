@@ -101,6 +101,25 @@ export class MCPService {
     emitConfigChange(row.channelId ?? '__global__', 'mcp');
   }
 
+  async updateScoped(channelId: string, id: string, input: UpdateMCPConfigInput) {
+    const db = getDb();
+    const [existing] = await db.select().from(mcpConfigs).where(eq(mcpConfigs.id, id));
+    if (!existing) throw new NotFoundError('MCP config', id);
+    // MCP configs with null channelId are global — scoping doesn't apply
+    if (existing.channelId !== null && existing.channelId !== channelId)
+      throw new NotFoundError('MCP config', id);
+    return this.update(id, input);
+  }
+
+  async deleteScoped(channelId: string, id: string) {
+    const db = getDb();
+    const [existing] = await db.select().from(mcpConfigs).where(eq(mcpConfigs.id, id));
+    if (!existing) throw new NotFoundError('MCP config', id);
+    if (existing.channelId !== null && existing.channelId !== channelId)
+      throw new NotFoundError('MCP config', id);
+    return this.delete(id);
+  }
+
   async testConnection(id: string) {
     const config = await this.getConfigById(id);
     let client: Awaited<ReturnType<typeof createMCPClient>> | null = null;
