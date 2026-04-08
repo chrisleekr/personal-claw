@@ -1,3 +1,11 @@
+## [1.2.3](https://github.com/chrisleekr/personal-claw/compare/v1.2.2...v1.2.3) (2026-04-08)
+
+
+### Bug Fixes
+
+* **research:** use claude_code_oauth_token as action input, not env var ([776e2b7](https://github.com/chrisleekr/personal-claw/commit/776e2b7a22b3ce3f11217ab55b9f2959149f8513))
+* **research:** use OAuth token and Opus model instead of API key and Sonnet ([ce0289f](https://github.com/chrisleekr/personal-claw/commit/ce0289f8118b818f6bed5345aed9276ae551ebb8))
+
 ## [1.2.2](https://github.com/chrisleekr/personal-claw/compare/v1.2.1...v1.2.2) (2026-04-08)
 
 
