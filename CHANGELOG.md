@@ -1,3 +1,10 @@
+## [1.2.7](https://github.com/chrisleekr/personal-claw/compare/v1.2.6...v1.2.7) (2026-04-08)
+
+
+### Bug Fixes
+
+* **research:** add schedule 2x daily, conventional commit titles, more areas ([fb5ed60](https://github.com/chrisleekr/personal-claw/commit/fb5ed6039b743ca7bfe9b5a03df6ad90f99415b6))
+
 ## [1.2.6](https://github.com/chrisleekr/personal-claw/compare/v1.2.5...v1.2.6) (2026-04-08)
 
 
