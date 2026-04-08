@@ -14,9 +14,10 @@
 # - --disallowedTools "": WebSearch and WebFetch are disabled by default in the action.
 #   Must explicitly allow them and clear the disallowed list.
 #   See https://github.com/anthropics/claude-code-action/issues/690
-# - --max-turns 20: Caps cost per run. With 1 issue per run and 12-hour intervals,
-#   this gives ~40 turns/day of API usage. 20 turns is sufficient for deep analysis
-#   of one finding (codebase reading + web search + diagram + issue creation).
+# - --max-turns 40: Caps cost per run. With 1 issue per run and 12-hour intervals,
+#   this gives ~80 turns/day of API usage. 40 turns provides enough room for Opus
+#   to do deep analysis (codebase reading + web search + diagram + issue creation).
+#   20 turns was insufficient — Opus hit the limit before completing.
 # - One issue per run: Enables deep analysis with proper Mermaid diagrams and
 #   thorough references, rather than many shallow findings.
 
@@ -79,7 +80,7 @@ jobs:
           # track_progress: true — not supported for schedule/workflow_dispatch events
           claude_args: |
             --model opus
-            --max-turns 20
+            --max-turns 40
             --allowedTools "WebSearch,WebFetch,Read,Glob,Grep,Bash(gh issue create:*),Bash(gh issue list:*),Bash(gh label create:*),Bash(git log:*),Bash(cat:*),Bash(date:*)"
             --disallowedTools ""
           prompt: |
