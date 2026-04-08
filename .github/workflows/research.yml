@@ -76,7 +76,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           allowed_bots: "*"
-          track_progress: true
+          # track_progress: true — not supported for schedule/workflow_dispatch events
           claude_args: |
             --max-turns 20
             --allowedTools "WebSearch,WebFetch,Read,Glob,Grep,Bash(gh issue create:*),Bash(gh issue list:*),Bash(gh label create:*),Bash(git log:*),Bash(cat:*),Bash(date:*)"
