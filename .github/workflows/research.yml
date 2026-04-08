@@ -25,7 +25,7 @@ name: Scheduled Research
 
 on:
   schedule:
-    - cron: "0 */12 * * *"
+    - cron: "0 22 * * *" # 8 AM AEST (UTC+10)
   workflow_dispatch:
     inputs:
       focus_area:
@@ -86,157 +86,107 @@ jobs:
           prompt: |
             REPO: ${{ github.repository }}
             FOCUS_AREA: ${{ github.event.inputs.focus_area || '' }}
-            TRIGGER: ${{ github.event_name }}
 
             ## Mission
 
-            You are a principal software engineer researching improvements for the PersonalClaw
-            autonomous agent platform. Your mission is to **improve this agent toward full autonomy** —
-            every finding must move the platform closer to operating independently without human
-            intervention.
+            You are a principal software engineer improving the PersonalClaw autonomous agent
+            platform. Your mission: **improve existing features toward full autonomy**.
+            Research how current features can be enhanced, then create ONE GitHub issue.
 
             ## Quality Gate
 
-            Every finding you propose MUST pass ALL three criteria. If a finding fails any one
-            of them, do NOT suggest it. Find a different finding or report no findings.
+            Every finding MUST be: (1) Feasible — implementable in the current codebase,
+            (2) Extendable — builds on existing architecture, no rewrites, (3) 100% Accurate —
+            all file paths, function names verified by reading actual files. If a finding fails
+            any criterion, skip it.
 
-            1. **Feasible**: Implementable within the current codebase and tech stack
-               (TypeScript, Bun, Hono, pgvector, Vercel AI SDK). No theoretical suggestions
-               or ideas requiring technology that does not exist.
-            2. **Extendable**: Builds on existing architecture rather than requiring rewrites.
-               Each improvement should compose with previous improvements.
-            3. **100% Accurate**: Every claim must be verifiable. File paths, function names,
-               and line numbers MUST be real — verify them by reading the actual files.
-               External references MUST link to actual documentation. No hallucinated
-               libraries or APIs.
+            ## STRICT Workflow — Follow These Steps In Order
 
-            ## Research Scope
+            You have a LIMITED turn budget. Do NOT read every file. Follow this exact sequence:
 
-            If FOCUS_AREA is provided and non-empty, focus your research EXCLUSIVELY on that area.
-            If FOCUS_AREA is empty or this is a scheduled run, perform general-purpose research
-            across the entire platform.
+            ### Step 1: Understand the architecture (2-3 turns max)
+            - Read `docs/ARCHITECTURE.md` and `CLAUDE.md`
+            - Run `git log --oneline -20` to see recent changes
+            - This gives you the full system overview without reading every file
 
-            Perform HYBRID research:
-            1. **Internal analysis**: Read the codebase thoroughly — analyze architecture, check for
-               bugs, security concerns, performance issues, and improvement opportunities.
-               Focus on areas that would increase the agent's autonomy.
-            2. **Recent changes**: Run `git log --oneline -20` to see recent commits. Areas with
-               active changes are good candidates for improvement — they may have regressions,
-               incomplete work, or follow-up opportunities.
-            3. **External research**: Use WebSearch to find current best practices for AI agent
-               platforms, new libraries, design patterns, and ecosystem updates relevant to this
-               project's stack.
+            ### Step 2: Pick ONE subsystem to improve (1 turn)
+            - Check existing research issues to avoid duplicates AND pick a different area:
+              ```
+              gh issue list --label research --state all --limit 500 --json title,state
+              ```
+            - If FOCUS_AREA is non-empty, use that. Otherwise, pick ONE subsystem that
+              has NOT been recently researched. Subsystems:
+              agent-engine, memory, tools, security, performance, infrastructure
+            - DO NOT try to analyze the entire codebase
 
-            Spend your time going deep on one area rather than shallow across many.
+            ### Step 3: Read ONLY key files in that subsystem (5-8 turns max)
+            - Read the 3-5 most important files in your chosen subsystem
+            - Focus on the main module entry point and core logic
+            - Do NOT exhaustively read every file in the directory
 
-            **Rotation** (only when FOCUS_AREA is empty): Do NOT always research the same area.
-            Vary your focus across runs. Check what areas previous research issues have covered
-            (by scanning existing issue titles) and deliberately explore a DIFFERENT area this run.
-            When FOCUS_AREA is provided, ignore rotation and focus on the requested area.
+            ### Step 4: Research improvements via WebSearch (3-5 turns max)
+            - Search for best practices specific to your chosen subsystem
+            - Look for: new patterns, libraries, or techniques that could improve
+              the existing feature toward greater autonomy
+            - Example searches: "AI agent memory architecture best practices 2026",
+              "autonomous agent self-healing patterns", "pgvector optimization techniques"
 
-            ## Before Creating an Issue
-
-            1. First, ensure labels exist (these commands are idempotent):
+            ### Step 5: Create the issue (3-5 turns max)
+            1. Create labels:
                ```
                gh label create research --description "Automated research finding" --color 0e8a16 --force
-               ```
-
-            2. Also create the area-specific label you will use:
-               ```
                gh label create [area] --color 1d76db --force
                ```
-               Area labels (use ONLY these — never use raw focus_area as a label):
-               memory, security, performance, agent-engine, tools, infrastructure
-
-            3. Check ALL existing research issues (open AND closed) to avoid duplicates:
+               Area labels (use ONLY these): memory, security, performance, agent-engine, tools, infrastructure
+            2. Write issue body to temp file and create:
                ```
-               gh issue list --label research --state all --limit 500 --json title,body,state
+               cat > /tmp/issue-body.md << 'ISSUE_EOF'
+               [issue body here]
+               ISSUE_EOF
+               gh issue create --title "research: [area] - [summary]" --label "research,[area]" --body-file /tmp/issue-body.md
                ```
-               Compare your finding against ALL research issues by title and topic.
-               - If an open issue already covers your finding — skip it, find something else.
-               - If a closed issue covers your finding — it was already addressed. Skip it.
-               If all significant findings are already tracked, report that instead.
 
-            ## Creating the Issue
+            ## Issue Body Template
 
-            Create exactly ONE GitHub issue. Focus deeply on your single highest-impact finding.
-
-            **Title format**: `research: [area] - [brief summary]`
-            Examples:
-            - `research: memory - pgvector HNSW index tuning for recall latency`
-            - `research: security - MCP tool input sanitization gap in stdio transport`
-
-            **Creating the issue**: Write the issue body to a temp file and use `--body-file`
-            to avoid shell argument length limits (Mermaid diagrams can be long):
-            ```
-            cat > /tmp/issue-body.md << 'ISSUE_EOF'
-            ... issue body content ...
-            ISSUE_EOF
-            gh issue create --title "research: [area] - [summary]" --label "research,[area]" --body-file /tmp/issue-body.md
-            ```
-
-            **Issue body** — use this EXACT structure in the file:
+            Use this EXACT structure:
 
             ## Finding
-
-            [Thorough description of what was discovered. Be specific — reference exact file paths,
-            function names, line numbers. Explain the current behavior and what could be improved.
-            Explain how this improvement moves the agent toward greater autonomy.]
+            [What you discovered. Reference exact file paths and line numbers.
+            Explain current behavior and how it can be improved toward autonomy.]
 
             ## Diagram
-
-            [MANDATORY Mermaid diagram that visually explains the finding.
-            Follow these GitHub-compatible Mermaid rules strictly:
-            - Use classDef with high-contrast hex color pairs meeting WCAG 2 AA 4.5:1 ratio
-            - Use <br/> for new lines, never \n
-            - Avoid parentheses in node labels — they break Mermaid syntax
-            - Use :::className inline syntax, e.g. NodeId["label"]:::styleName
-            - Do NOT use multiple subgraph blocks — GitHub renderer fails
-            - Use descriptive node IDs with 3+ characters
-            - Choose the appropriate type: graph LR/TD, sequenceDiagram, stateDiagram-v2, or classDiagram
-            The diagram must EXPLAIN the finding, not just decorate the issue.]
+            [MANDATORY Mermaid diagram explaining the finding. GitHub-compatible rules:
+            classDef with high-contrast hex colors, <br/> for newlines, no parentheses
+            in node labels, :::className inline syntax, no multiple subgraph blocks,
+            3+ char node IDs. Choose: graph LR/TD, sequenceDiagram, stateDiagram-v2,
+            or classDiagram. Must EXPLAIN the finding, not decorate.]
 
             ## Rationale
-
-            [Why this matters — concrete impact on the agent platform. Include metrics or estimates
-            where possible.]
+            [Why this matters. Include metrics or estimates where possible.]
 
             ## References
-
-            - **Internal**: [exact file paths, line numbers, function names you verified by reading]
-            - **External**: [URLs to documentation, blog posts, papers found via WebSearch]
+            - **Internal**: [file paths, line numbers you verified]
+            - **External**: [URLs from WebSearch]
 
             ## Suggested Next Steps
-
-            1. [Concrete, actionable step]
-            2. [Alternative approach if applicable]
+            1. [Concrete action]
+            2. [Alternative if applicable]
 
             ## Areas Evaluated
-
-            [List ALL areas you analyzed during this run, including those where no issue was warranted.
-            This tracks research coverage over time.]
+            [What you looked at this run, including areas with no findings.]
 
             ---
-            *Generated by scheduled research workflow on [YYYY-MM-DD — get the current date via `date +%Y-%m-%d` command]*
+            *Generated by scheduled research workflow on [run date +%Y-%m-%d to get date]*
 
             ## If No Finding
 
-            If after thorough analysis you find no actionable improvement that passes the quality
-            gate and is not already covered by an existing issue (open or closed), do NOT create an issue.
-            Instead, output a summary:
-            - What areas you analyzed
-            - What web searches you performed
-            - Why no finding met the quality gate (feasible + extendable + 100% accurate)
+            If no improvement passes the quality gate, do NOT create an issue. Output a summary
+            of what you analyzed and why nothing qualified.
 
             ## Rules
-
-            - DO NOT modify any files in the repository
-            - DO NOT create branches or pull requests
-            - ONLY create GitHub issues via `gh issue create`
-            - Create exactly ONE issue per run — no more
-            - Focus on depth over breadth
-            - ALWAYS include a Mermaid diagram that explains the finding visually
-            - ALWAYS verify file paths and function names by reading the actual files before citing them
-            - Prioritize findings by autonomy impact: self-healing > self-improvement > security > performance > architecture
-            - Reference specific file paths and line numbers for internal code
-            - Include URLs for external references found via WebSearch
+            - DO NOT modify files or create branches/PRs
+            - ONLY create issues via `gh issue create`
+            - Exactly ONE issue per run
+            - Do NOT read more than 8 files total — use architecture docs for context
+            - ALWAYS include a Mermaid diagram
+            - ALWAYS verify file paths by reading files before citing them
