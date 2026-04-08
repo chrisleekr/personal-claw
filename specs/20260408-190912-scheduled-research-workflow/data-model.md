@@ -39,7 +39,7 @@ This feature introduces no new database entities, tables, or schema changes. The
 
 ```mermaid
 graph LR
-    WRK["Workflow Run"]:::primary --> ISS["Research Issues<br/>0..20 per run"]:::output
+    WRK["Workflow Run"]:::primary --> ISS["Research Issue<br/>0..1 per run"]:::output
     WRK --> DUP["Existing Open Issues<br/>checked for duplicates"]:::check
     USR["Maintainer"]:::actor --> WRK
     USR --> ISS

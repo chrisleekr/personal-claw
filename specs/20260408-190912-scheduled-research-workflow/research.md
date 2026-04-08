@@ -39,7 +39,7 @@
 1. Mission: Improve the agent toward full autonomy — every finding must move the platform closer to independent operation
 2. Analyze the codebase for bugs, performance issues, security concerns, and architecture improvements
 3. Search the web for current AI agent best practices, new libraries, and ecosystem updates
-4. Check existing open issues to avoid duplicates
+4. Check existing open and closed issues to avoid duplicates
 5. Create exactly one GitHub issue per run with deep analysis, each with: title convention `research: [area] - [summary]`, structured body (finding, Mermaid diagram, rationale, references, next steps), and `research` label
 6. Quality gate: Every finding must be feasible (implementable now), extendable (composable with existing architecture), and 100% accurate (all references verified). If a finding fails any criterion, do not suggest it.
 7. If a focus area is provided via `workflow_dispatch`, scope research to that area
@@ -73,9 +73,9 @@
 
 ## Decision 7: Issue Duplicate Detection
 
-**Decision**: Instruct Claude Code in the prompt to use `gh issue list` to search existing open issues before creating new ones. Match by title prefix and label.
+**Decision**: Instruct Claude Code in the prompt to use `gh issue list --state all` to search existing open AND closed issues before creating new ones. Match by title prefix and label.
 
-**Rationale**: Claude Code has access to `gh` CLI within the action. Searching by title prefix (`research:`) and comparing findings before creating is the simplest approach. Semantic comparison of issue bodies would require embedding infrastructure not available in a GitHub Actions runner.
+**Rationale**: Claude Code has access to `gh` CLI within the action. Searching by title prefix (`research:`) and comparing findings before creating is the simplest approach. Checking closed issues prevents re-raising already-addressed findings. Semantic comparison of issue bodies would require embedding infrastructure not available in a GitHub Actions runner.
 
 **Alternatives considered**:
 - Semantic comparison of issue bodies: Rejected — requires embedding model not available in the action

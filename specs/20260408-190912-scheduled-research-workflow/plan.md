@@ -10,7 +10,7 @@ Add a scheduled GitHub Actions workflow that uses the Claude Code Action to rese
 ## Technical Context
 
 **Language/Version**: YAML (GitHub Actions workflow syntax) — no TypeScript code changes
-**Primary Dependencies**: `anthropics/claude-code-action@v1`, `actions/checkout@v4`
+**Primary Dependencies**: `anthropics/claude-code-action@v1`, `actions/checkout@v6`
 **Storage**: N/A — no database changes
 **Testing**: Manual validation via `workflow_dispatch` trigger; no automated tests for workflow files
 **Target Platform**: GitHub Actions (ubuntu-latest runner)

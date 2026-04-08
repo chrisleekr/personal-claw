@@ -33,5 +33,5 @@
 
 - All items pass validation after clarification session. Spec is ready for `/speckit.plan`.
 - The spec references "Claude Code GitHub Action" and "GitHub Actions" which are the user-facing product names, not implementation details — this is appropriate for a workflow that inherently involves these products.
-- Clarification session (2026-04-08) resolved: research scope (hybrid), output format (issues only), issue granularity (one per finding, no cap), schedule frequency (every 12 hours), and `workflow_dispatch` as primary testing mechanism.
+- Clarification session (2026-04-08) resolved: research scope (hybrid), output format (issues only), issue granularity (exactly one deeply researched issue per run), schedule frequency (every 12 hours), and `workflow_dispatch` as primary testing mechanism.
 - 3 valid production issues opened during review: #26 (rate limiter fail-open), #27 (Redis fire-and-forget), #28 (OAuth empty credentials).

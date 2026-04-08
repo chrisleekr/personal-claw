@@ -36,7 +36,7 @@ on:
 permissions:
   contents: read
   issues: write
-  id-token: write
+  id-token: write # Required by claude-code-action even with PAT auth
 
 concurrency:
   group: research-workflow
@@ -79,7 +79,7 @@ jobs:
           track_progress: true
           claude_args: |
             --max-turns 20
-            --allowedTools "WebSearch,WebFetch,Read,Glob,Grep,Bash(gh issue create:*),Bash(gh issue list:*),Bash(gh label create:*),Bash(git log:*)"
+            --allowedTools "WebSearch,WebFetch,Read,Glob,Grep,Bash(gh issue create:*),Bash(gh issue list:*),Bash(gh label create:*),Bash(git log:*),Bash(cat:*),Bash(date:*)"
             --disallowedTools ""
           prompt: |
             REPO: ${{ github.repository }}
@@ -127,9 +127,10 @@ jobs:
 
             Spend your time going deep on one area rather than shallow across many.
 
-            **Rotation**: Do NOT always research the same area. Vary your focus across runs.
-            Check what areas previous research issues have covered (by scanning existing issue
-            titles) and deliberately explore a DIFFERENT area this run.
+            **Rotation** (only when FOCUS_AREA is empty): Do NOT always research the same area.
+            Vary your focus across runs. Check what areas previous research issues have covered
+            (by scanning existing issue titles) and deliberately explore a DIFFERENT area this run.
+            When FOCUS_AREA is provided, ignore rotation and focus on the requested area.
 
             ## Before Creating an Issue
 
@@ -142,11 +143,12 @@ jobs:
                ```
                gh label create [area] --color 1d76db --force
                ```
-               Area labels: memory, security, performance, agent-engine, tools, infrastructure
+               Area labels (use ONLY these — never use raw focus_area as a label):
+               memory, security, performance, agent-engine, tools, infrastructure
 
             3. Check ALL existing research issues (open AND closed) to avoid duplicates:
                ```
-               gh issue list --label research --state all --limit 100 --json title,body,state
+               gh issue list --label research --state all --limit 500 --json title,body,state
                ```
                Compare your finding against ALL research issues by title and topic.
                - If an open issue already covers your finding — skip it, find something else.

@@ -18,7 +18,7 @@ Go to **Settings > Secrets and variables > Actions** and add:
 
 ### 2. Create the Workflow File
 
-The workflow file goes at `.github/workflows/research.yml`. This will be created by the implementation task.
+The workflow file is at `.github/workflows/research.yml` (already created).
 
 ### 3. Test via Manual Trigger
 
@@ -42,6 +42,6 @@ The workflow runs automatically every 12 hours (`0 */12 * * *`). To change the s
 ## Cost Expectations
 
 Each run uses approximately:
-- **Claude API tokens**: Variable based on codebase size and research depth (capped at 30 turns)
+- **Claude API tokens**: Variable based on codebase size and research depth (capped at 20 turns)
 - **GitHub Actions minutes**: ~10-15 minutes on ubuntu-latest per run
 - **Frequency**: 2 runs per day = ~20-30 minutes of Actions time daily

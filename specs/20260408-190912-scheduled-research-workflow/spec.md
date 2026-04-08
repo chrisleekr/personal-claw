@@ -22,7 +22,7 @@ The goal of this research workflow is to **improve PersonalClaw toward full auto
 - Q: What should the workflow produce as output? → A: GitHub issues only. All research findings become issues for manual triage — no automated code changes or PRs.
 - Q: How many issues per run and how should findings be grouped? → A: Exactly one issue per run. The workflow must focus deeply on a single finding with thorough analysis, Mermaid diagram, and comprehensive references.
 - Q: What schedule frequency? → A: Every 12 hours (cron: `0 */12 * * *`).
-- Q: Should the workflow check for existing issues before creating new ones? → A: Yes — the workflow MUST check existing open issues and skip creating a new issue if an equivalent finding already exists. Duplicate avoidance is mandatory.
+- Q: Should the workflow check for existing issues before creating new ones? → A: Yes — the workflow MUST check existing open and closed issues and skip creating a new issue if an equivalent finding already exists or was already addressed. Duplicate avoidance is mandatory.
 
 ### Research Findings (Claude Code Action)
 
@@ -102,7 +102,7 @@ As a project maintainer, I want each research run to produce well-structured Git
 - **FR-004**: The workflow MUST create exactly one GitHub issue per run, focusing deeply on a single finding. The issue MUST contain a thorough analysis with rationale, references, suggested next steps, and a Mermaid diagram that visually explains the finding (e.g., data flow, architecture impact, before/after comparison, or affected component relationships). If no actionable finding is identified, no issue is created.
 - **FR-005**: The workflow MUST skip issue creation when no findings are identified, and instead log a summary of what was evaluated.
 - **FR-006**: The workflow MUST use concurrency controls to prevent overlapping runs from the same schedule.
-- **FR-007**: The workflow MUST check all existing open issues before creating new ones. If an equivalent finding already has an open issue, the workflow MUST skip that finding entirely rather than creating a duplicate.
+- **FR-007**: The workflow MUST check all existing issues (open and closed) before creating new ones. If an equivalent finding already has an existing issue (open or closed), the workflow MUST skip that finding entirely rather than creating a duplicate.
 - **FR-008**: Issues created by the workflow MUST follow a consistent title convention and be labeled for easy identification, filtering, and triage.
 - **FR-009**: The workflow MUST provide Claude Code with sufficient context about the repository's architecture, conventions, and current state to produce relevant proposals.
 - **FR-010**: The workflow MUST use repository secrets for any required API keys, and fail gracefully with a clear error message if secrets are missing.
