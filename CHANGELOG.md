@@ -1,3 +1,11 @@
+## [1.2.2](https://github.com/chrisleekr/personal-claw/compare/v1.2.1...v1.2.2) (2026-04-08)
+
+
+### Bug Fixes
+
+* **research:** remove track_progress unsupported for schedule/workflow_dispatch ([d78eab5](https://github.com/chrisleekr/personal-claw/commit/d78eab549ac208f6d164b8fadbbdfd99e796352f))
+* **security:** harden authentication and authorization across WebSocket, approval gateway, and CLI tools ([#24](https://github.com/chrisleekr/personal-claw/issues/24)) ([24ed4b0](https://github.com/chrisleekr/personal-claw/commit/24ed4b0ec64ba8cb9917ec4cc999dbed989d4900))
+
 ## [1.2.1](https://github.com/chrisleekr/personal-claw/compare/v1.2.0...v1.2.1) (2026-04-07)
 
 
