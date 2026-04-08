@@ -1,3 +1,10 @@
+## [1.2.8](https://github.com/chrisleekr/personal-claw/compare/v1.2.7...v1.2.8) (2026-04-08)
+
+
+### Bug Fixes
+
+* **research:** increase timeout from 15 to 30 minutes for Opus deep research ([67eafe9](https://github.com/chrisleekr/personal-claw/commit/67eafe9c6cc989fe83e266a16130274a1d44d887))
+
 ## [1.2.7](https://github.com/chrisleekr/personal-claw/compare/v1.2.6...v1.2.7) (2026-04-08)
 
 
