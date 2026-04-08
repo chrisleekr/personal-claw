@@ -1,3 +1,10 @@
+## [1.2.9](https://github.com/chrisleekr/personal-claw/compare/v1.2.8...v1.2.9) (2026-04-08)
+
+
+### Bug Fixes
+
+* **research:** prevent test/placeholder issue creation ([99d39b3](https://github.com/chrisleekr/personal-claw/commit/99d39b30f1062b961f4fa20ea9c21f4d24eabee2)), closes [#33](https://github.com/chrisleekr/personal-claw/issues/33)
+
 ## [1.2.8](https://github.com/chrisleekr/personal-claw/compare/v1.2.7...v1.2.8) (2026-04-08)
 
 
