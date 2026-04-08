@@ -220,6 +220,9 @@ jobs:
             - DO NOT modify files or create branches/PRs
             - ONLY create issues via `gh issue create`
             - Exactly ONE issue per run
+            - NEVER create test/placeholder issues — no "test body", no dry runs. Only create
+              the final issue with the COMPLETE body using --body-file /tmp/issue-body.md
+            - Write the FULL issue body to /tmp/issue-body.md FIRST, then create the issue ONCE
             - Start with architecture docs for context, then deep-dive into your chosen subsystem
             - ALWAYS include a Mermaid diagram
             - ALWAYS verify file paths by reading files before citing them
