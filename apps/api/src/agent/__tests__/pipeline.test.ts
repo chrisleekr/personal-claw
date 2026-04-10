@@ -34,6 +34,10 @@ mock.module('../providers/registry', () => ({
       modelId: model ?? 'default-model',
     }),
     has: () => true,
+    // Added when `getProvider()` learned to consult `isConfigured()` for the
+    // OAuth-token fallback; returning `true` preserves this suite's
+    // pre-existing assumption that the requested provider is always available.
+    isConfigured: () => true,
   }),
 }));
 
@@ -86,29 +90,40 @@ function makeBaseCtx(overrides?: Partial<PipelineContext>): PipelineContext {
 }
 
 describe('preProcessStage', () => {
-  test('calls guardrails.preProcess and updates input', async () => {
+  test('calls guardrails.preProcess with history from memoryEngine and updates input', async () => {
     const guardrails = {
-      preProcess: mock(() => Promise.resolve({ text: 'sanitized text' })),
+      preProcess: mock(() =>
+        Promise.resolve({ text: 'sanitized text', flagged: false, decision: null }),
+      ),
       postProcess: mock(() => Promise.resolve('')),
     };
-    const stage = preProcessStage(guardrails as never);
+    const memoryEngine = {
+      assembleContext: mock(() => Promise.resolve({ memories: [], messages: [] })),
+    };
+    const stage = preProcessStage(guardrails as never, memoryEngine as never);
     const ctx = makeBaseCtx();
 
     const result = await stage(ctx);
 
     expect(guardrails.preProcess).toHaveBeenCalled();
+    expect(memoryEngine.assembleContext).toHaveBeenCalled();
     expect(result.input).toBe('sanitized text');
+    expect(result.detectionFlagged).toBe(false);
   });
 
-  test('preserves other context fields', async () => {
+  test('preserves other context fields and propagates detectionFlagged on flag', async () => {
     const guardrails = {
-      preProcess: mock(() => Promise.resolve({ text: 'ok' })),
+      preProcess: mock(() => Promise.resolve({ text: 'ok', flagged: true, decision: null })),
     };
-    const stage = preProcessStage(guardrails as never);
+    const memoryEngine = {
+      assembleContext: mock(() => Promise.resolve({ memories: [], messages: [] })),
+    };
+    const stage = preProcessStage(guardrails as never, memoryEngine as never);
     const ctx = makeBaseCtx({ memories: [{ id: 'm1' } as never] });
 
     const result = await stage(ctx);
     expect(result.memories).toHaveLength(1);
+    expect(result.detectionFlagged).toBe(true);
   });
 });
 
@@ -187,7 +202,7 @@ describe('loadToolsStage', () => {
 });
 
 describe('composePromptStage', () => {
-  test('composes system prompt and loads skill IDs', async () => {
+  test('composes system prompt, loads skill IDs, injects canary when enabled', async () => {
     const promptComposer = {
       compose: mock(() =>
         Promise.resolve({
@@ -196,7 +211,17 @@ describe('composePromptStage', () => {
         }),
       ),
     };
-    const stage = composePromptStage(promptComposer as never);
+    const guardrails = {
+      generateCanaryForChannel: mock(() =>
+        Promise.resolve({
+          token: 'pc_canary_abc',
+          emittedAt: 0,
+          placementHint: 'test',
+        }),
+      ),
+      injectCanaryIntoPrompt: mock((prompt: string) => `${prompt}\n<canary/>`),
+    };
+    const stage = composePromptStage(promptComposer as never, guardrails as never);
     const ctx = makeBaseCtx({
       tools: { memory_search: {} as never },
       safeToolNames: new Set(['memory_search']),
@@ -205,13 +230,32 @@ describe('composePromptStage', () => {
 
     const result = await stage(ctx);
 
-    expect(result.systemPrompt).toBe('You are a helpful assistant.');
+    expect(result.systemPrompt).toContain('You are a helpful assistant.');
+    expect(result.systemPrompt).toContain('<canary/>');
     expect(result.loadedSkillIds).toEqual(['skill-1', 'skill-2']);
+    expect(result.canary).toBeDefined();
+  });
+
+  test('skips prompt composition when detectionBlockResponse is set', async () => {
+    const promptComposer = {
+      compose: mock(() =>
+        Promise.resolve({ systemPrompt: 'should not be called', loadedSkillIds: [] }),
+      ),
+    };
+    const guardrails = {
+      generateCanaryForChannel: mock(() => Promise.resolve(null)),
+      injectCanaryIntoPrompt: mock((p: string) => p),
+    };
+    const stage = composePromptStage(promptComposer as never, guardrails as never);
+    const ctx = makeBaseCtx({ detectionBlockResponse: '⚠️ blocked' });
+    const result = await stage(ctx);
+    expect(promptComposer.compose).not.toHaveBeenCalled();
+    expect(result.detectionBlockResponse).toBe('⚠️ blocked');
   });
 });
 
 describe('postProcessStage', () => {
-  test('sanitizes response via guardrails', async () => {
+  test('sanitizes response via guardrails with canary and audit metadata', async () => {
     const guardrails = {
       postProcess: mock(() => Promise.resolve('sanitized output')),
     };
@@ -220,7 +264,10 @@ describe('postProcessStage', () => {
 
     const result = await stage(ctx);
     expect(result.response).toBe('sanitized output');
-    expect(guardrails.postProcess).toHaveBeenCalledWith('raw output', 'ch-001');
+    expect(guardrails.postProcess).toHaveBeenCalledWith('raw output', 'ch-001', null, {
+      externalUserId: 'user-1',
+      threadId: 'thread-1',
+    });
   });
 });
 
@@ -358,6 +405,25 @@ describe('createSandboxStage', () => {
 });
 
 describe('wrapApprovalStage', () => {
+  // Minimal stub detection engine for the gateway constructor. Unit tests
+  // here don't exercise tool-output detection — they focus on the approval
+  // wrapping — so a no-op engine is sufficient. The separate approval-gateway
+  // and detection tests cover the filter behavior.
+  const stubDetectionEngine = {
+    detect: async () => ({
+      decision: {
+        action: 'allow' as const,
+        riskScore: 0,
+        layersFired: [],
+        reasonCode: 'NO_MATCH',
+        redactedExcerpt: '',
+        referenceId: 'stub-ref-000',
+        sourceKind: 'tool_result' as const,
+      },
+      layerResults: [],
+    }),
+  } as never;
+
   beforeEach(() => {
     // Reset DB mock to return empty rows so loadPolicies() succeeds with no policies
     mockDbSelect.mockReturnValue({
@@ -373,21 +439,24 @@ describe('wrapApprovalStage', () => {
       safeToolNames: new Set<string>(),
     });
 
-    const result = await wrapApprovalStage(ctx);
+    const stage = wrapApprovalStage(stubDetectionEngine);
+    const result = await stage(ctx);
     expect('confirm_plan' in result.tools).toBe(true);
     expect('existing_tool' in result.tools).toBe(true);
   });
 
   test('provides toolTimings map', async () => {
     const ctx = makeBaseCtx();
-    const result = await wrapApprovalStage(ctx);
+    const stage = wrapApprovalStage(stubDetectionEngine);
+    const result = await stage(ctx);
     expect(result.toolTimings).toBeDefined();
     expect(result.toolTimings).toBeInstanceOf(Map);
   });
 
   test('provides getDismissedPlan function', async () => {
     const ctx = makeBaseCtx();
-    const result = await wrapApprovalStage(ctx);
+    const stage = wrapApprovalStage(stubDetectionEngine);
+    const result = await stage(ctx);
     expect(typeof result.getDismissedPlan).toBe('function');
   });
 });

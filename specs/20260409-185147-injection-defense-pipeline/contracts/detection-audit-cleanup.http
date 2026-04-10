@@ -1,0 +1,44 @@
+### Detection audit retention cleanup endpoint
+### FR-028 part (b): admin-triggered synchronous cleanup
+### Paired with the system-level cron job in apps/api/src/cron/audit-cleanup.ts (FR-028 part a)
+### Both paths call the same shared deletion function (no drift)
+### Route file: apps/api/src/routes/detection-audit.ts (NEW — same file as detection-audit.http)
+
+@host = http://localhost:4000
+@apiSecret = REPLACE_ME_WITH_API_SECRET
+@channelId = 550e8400-e29b-41d4-a716-446655440000
+
+### ---------------------------------------------------------------
+### Trigger retention cleanup for a specific channel
+### Deletes any detection_audit_events row whose created_at is older
+### than that channel's effective auditRetentionDays.
+### ---------------------------------------------------------------
+POST {{host}}/api/guardrails/audit/cleanup
+Authorization: Bearer {{apiSecret}}
+Content-Type: application/json
+
+{
+  "channelId": "{{channelId}}"
+}
+
+### Request body:
+### {
+###   "channelId"?: string  // Optional — if omitted, runs cleanup for all channels
+### }
+
+### Success response (200):
+### {
+###   "data": {
+###     "deletedByChannel": {
+###       "550e8400-e29b-41d4-a716-446655440000": 42
+###     },
+###     "totalDeleted": 42,
+###     "durationMs": 123
+###   }
+### }
+
+### Error responses:
+###   401 — invalid or missing Bearer token
+###   403 — caller is not a global admin (for channelId-omitted full sweep) OR
+###         caller is not in channelAdmins for the specified channel
+###   500 — SQL error (surfaced per FR-017, never swallowed)

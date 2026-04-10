@@ -15,13 +15,14 @@ export function getMemoryTools(channelId: string, userId = '', threadId = '') {
       inputSchema: memorySaveSchema,
       execute: async ({ content, category }) => {
         await longTermMemory.save(channelId, content, category, threadId || undefined);
-        await hooks.emit('memory:saved', {
+        // Lifecycle notification; non-audit-critical. Discard HookEmitResult per FR-029.
+        void (await hooks.emit('memory:saved', {
           channelId,
           externalUserId: userId,
           threadId,
           eventType: 'memory:saved',
           payload: { content, category },
-        });
+        }));
         return { saved: true, content, category };
       },
     }),

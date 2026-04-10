@@ -1,12 +1,16 @@
 import { getLogger } from '@logtape/logtape';
 import { approvalPolicies, channels, eq } from '@personalclaw/db';
-import type { ApprovalPolicy, PlanApprovalState } from '@personalclaw/shared';
+import type { ApprovalPolicy, GuardrailsConfig, PlanApprovalState } from '@personalclaw/shared';
 import type { ToolExecutionOptions, ToolSet } from 'ai';
 import { tool } from 'ai';
 import { z } from 'zod';
 import type { ChannelAdapter } from '../channels/adapter';
 import { getDb } from '../db';
 import { HooksEngine } from '../hooks/engine';
+import { writeAuditEvent } from './detection/audit';
+import type { DetectionEngine } from './detection/engine';
+import type { DetectionContext, DetectionDecision } from './detection/types';
+import { getToolTrustCategory, type ToolTrustCategory } from './tool-trust';
 
 const logger = getLogger(['personalclaw', 'agent', 'approval-gateway']);
 
@@ -65,6 +69,23 @@ export class ApprovalGateway {
     private adapter: ChannelAdapter,
     private safeToolNames: Set<string> = new Set(),
     private verifiedUserId = false,
+    /**
+     * When true, the detection pipeline flagged the current turn as
+     * suspicious (FR-005). Tools must NOT auto-execute in this mode —
+     * every invocation goes through individual approval even if a plan
+     * was approved or the tool has an `auto` policy.
+     */
+    private detectionFlagged = false,
+    /**
+     * Optional detection engine for filtering untrusted tool outputs per
+     * FR-006 and the tiered trust model in FR-030. When present, every
+     * tool output from a Category 3 (`external_untrusted`) or Category 4
+     * (`mixed`) tool is routed through `detectionEngine.detect()` with
+     * `sourceKind: 'tool_result'` before being returned to the LLM; blocked
+     * fields are replaced with a neutralizing placeholder and audit-logged.
+     * When absent, tool outputs pass through unchanged (legacy behavior).
+     */
+    private detectionEngine: DetectionEngine | null = null,
   ) {}
 
   private async loadPolicies(): Promise<Map<string, ApprovalPolicyRow>> {
@@ -174,13 +195,16 @@ export class ApprovalGateway {
     approved: boolean,
     policy: string,
   ): Promise<void> {
-    await hooks.emit('tool:called', {
+    // Tool approval event; non-audit-critical side-channel. Discard the
+    // HookEmitResult per FR-029 — handler failures are logged by the engine
+    // but must not block tool execution.
+    void (await hooks.emit('tool:called', {
       channelId: this.channelId,
       externalUserId: this.userId,
       threadId: this.threadId,
       eventType: 'tool:called',
       payload: { toolName, args, approved, policy },
-    });
+    }));
   }
 
   private findPatternMatch(toolName: string): ApprovalPolicyRow | undefined {
@@ -213,6 +237,14 @@ export class ApprovalGateway {
       }
 
       if (policy === 'auto') {
+        // FR-005: flagged messages never auto-execute tools.
+        if (this.detectionFlagged) {
+          logger.info('Auto policy downgraded to ask due to detectionFlagged', {
+            toolName,
+            channelId: this.channelId,
+          });
+          return this.queueForApproval(toolName, args, 'auto-flagged');
+        }
         await this.emitToolHook(toolName, args, true, policy);
         return true;
       }
@@ -240,6 +272,14 @@ export class ApprovalGateway {
       const { approvedToolNames, approvedAt, timeoutMs } = this.planApprovalState;
       const elapsed = Date.now() - approvedAt;
       if (elapsed < timeoutMs && approvedToolNames.has(toolName)) {
+        // FR-005: flagged messages never auto-execute even via plan approval.
+        if (this.detectionFlagged) {
+          logger.info('Plan-approved execution downgraded to ask due to detectionFlagged', {
+            toolName,
+            channelId: this.channelId,
+          });
+          return this.queueForApproval(toolName, args, 'plan-flagged');
+        }
         await this.emitToolHook(toolName, args, true, 'plan');
         return true;
       }
@@ -309,7 +349,12 @@ export class ApprovalGateway {
           const start = performance.now();
           const result = await (originalExecute as (...args: unknown[]) => unknown)(args, options);
           this.toolTimings.set(options.toolCallId, Math.round(performance.now() - start));
-          return result;
+          // FR-006 / FR-030 tool-output detection: route untrusted tool
+          // results through the detection engine before they reach the LLM.
+          // Trusted categories (system_generated, already_detected) bypass
+          // detection and return as-is. Skipped entirely when no detection
+          // engine is wired (legacy unit tests).
+          return this.filterUntrustedResult(name, result);
         },
       };
     }
@@ -324,6 +369,51 @@ export class ApprovalGateway {
       .from(channels)
       .where(eq(channels.id, this.channelId));
     return row?.approvalTimeoutMs ?? 600_000;
+  }
+
+  /**
+   * FR-006 / FR-030 — Post-execute tool-output detection.
+   *
+   * Routes every `string` field in a tool's return value through the
+   * detection engine (with `sourceKind: 'tool_result'`) when the tool's
+   * trust category is `external_untrusted` or `mixed`. Strings found to
+   * contain injection payloads are replaced with a neutralizing placeholder
+   * and audit-logged.
+   *
+   * Traversal is bounded per research.md R3 to prevent expensive recursion
+   * on malicious or runaway results:
+   *
+   * - Maximum depth: 5
+   * - Maximum total string bytes inspected: 200 KB
+   * - Binary / non-string fields (images, arrays of numbers, booleans) pass
+   *   through unchanged — they cannot carry text-based injections, and
+   *   OCR-based detection is explicitly out of scope per FR-spec §Known
+   *   Limitations.
+   *
+   * On `block` from detection, the offending string becomes:
+   *   `[tool output blocked as suspected injection: ref=<refId>]`
+   *
+   * The tool caller (the LLM) sees this placeholder and can react. Other
+   * fields of the result remain intact so the tool-call as a whole is not
+   * uselessly discarded.
+   */
+  private async filterUntrustedResult(toolName: string, result: unknown): Promise<unknown> {
+    if (!this.detectionEngine) return result;
+
+    const category = getToolTrustCategory(toolName);
+    if (category === 'system_generated' || category === 'already_detected') {
+      return result;
+    }
+
+    const traversal = new UntrustedResultTraversal(
+      this.detectionEngine,
+      this.channelId,
+      this.userId,
+      this.threadId,
+      toolName,
+      category,
+    );
+    return traversal.walk(result, 0);
   }
 
   getConfirmPlanTool() {
@@ -364,6 +454,156 @@ export class ApprovalGateway {
         }
         throw new PlanRejectedError('rejected');
       },
+    });
+  }
+}
+
+/**
+ * Stateful helper that walks a tool result object, runs detection on every
+ * string field it finds, and replaces blocked fields with a neutralizing
+ * placeholder. The state (bytes inspected, depth tracking) prevents
+ * runaway traversal on malicious or large results.
+ */
+class UntrustedResultTraversal {
+  private static MAX_DEPTH = 5;
+  private static MAX_TOTAL_BYTES = 200_000;
+  private static MIN_LENGTH_TO_SCAN = 16; // strings shorter than this are not worth the detection cost
+  private bytesInspected = 0;
+  private readonly logger = logger;
+  // Minimal default GuardrailsConfig for tool-output detection: classifier
+  // disabled for speed (tool outputs are typically short and the heuristic +
+  // similarity layers are enough), canary disabled (no LLM call here),
+  // balanced profile so layer failures fail-open.
+  private static DETECTION_CONFIG: GuardrailsConfig = {
+    preProcessing: {
+      contentFiltering: true,
+      intentClassification: false,
+      maxInputLength: 50000,
+    },
+    postProcessing: { piiRedaction: false, outputValidation: true },
+    defenseProfile: 'balanced',
+    canaryTokenEnabled: false,
+    auditRetentionDays: 7,
+    detection: {
+      heuristicThreshold: 60,
+      similarityThreshold: 0.85,
+      similarityShortCircuitThreshold: 0.92,
+      classifierEnabled: false,
+      classifierTimeoutMs: 3000,
+    },
+  };
+
+  constructor(
+    private engine: DetectionEngine,
+    private channelId: string,
+    private externalUserId: string,
+    private threadId: string,
+    private toolName: string,
+    private category: ToolTrustCategory,
+  ) {}
+
+  /**
+   * Walks a value and returns a possibly-mutated copy with blocked strings
+   * replaced. Depth limit + total-bytes limit bound the work.
+   */
+  async walk(value: unknown, depth: number): Promise<unknown> {
+    if (depth > UntrustedResultTraversal.MAX_DEPTH) return value;
+    if (this.bytesInspected >= UntrustedResultTraversal.MAX_TOTAL_BYTES) return value;
+
+    if (typeof value === 'string') {
+      return this.handleString(value);
+    }
+    if (Array.isArray(value)) {
+      const out: unknown[] = [];
+      for (const item of value) {
+        out.push(await this.walk(item, depth + 1));
+      }
+      return out;
+    }
+    if (value !== null && typeof value === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+        out[key] = await this.walk(v, depth + 1);
+      }
+      return out;
+    }
+    // numbers, booleans, null, undefined — pass through
+    return value;
+  }
+
+  private async handleString(str: string): Promise<string> {
+    // Skip short strings to avoid paying the detection cost on field labels,
+    // URL prefixes, status codes, etc.
+    if (str.length < UntrustedResultTraversal.MIN_LENGTH_TO_SCAN) {
+      return str;
+    }
+    // Skip once we've exceeded the byte budget; remaining strings pass through.
+    const bytesRemaining = UntrustedResultTraversal.MAX_TOTAL_BYTES - this.bytesInspected;
+    if (bytesRemaining <= 0) return str;
+
+    // Truncate the string we pass to detection so a single huge string cannot
+    // starve the budget. The original is returned unchanged if detection
+    // passes — we only inspect a slice.
+    const slice = str.length > bytesRemaining ? str.slice(0, bytesRemaining) : str;
+    this.bytesInspected += slice.length;
+
+    const context: DetectionContext = {
+      channelId: this.channelId,
+      externalUserId: this.externalUserId,
+      threadId: this.threadId,
+      sourceKind: 'tool_result',
+      recentHistory: [],
+    };
+
+    try {
+      const result = await this.engine.detect(
+        slice,
+        context,
+        UntrustedResultTraversal.DETECTION_CONFIG,
+      );
+      if (result.decision.action !== 'block') {
+        return str;
+      }
+      // Block: audit + replace with neutralizing placeholder.
+      await this.auditToolResultBlock(result.decision, slice);
+      return `[tool output from ${this.toolName} blocked as suspected injection: ref=${result.decision.referenceId}]`;
+    } catch (error) {
+      this.logger.warn('Tool-output detection failed; returning original (fail-open)', {
+        toolName: this.toolName,
+        channelId: this.channelId,
+        error: (error as Error).message,
+      });
+      return str;
+    }
+  }
+
+  private async auditToolResultBlock(
+    decision: DetectionDecision,
+    rawExcerpt: string,
+  ): Promise<void> {
+    try {
+      await writeAuditEvent({
+        decision: { ...decision, sourceKind: 'tool_result' },
+        layerResults: [],
+        channelId: this.channelId,
+        externalUserId: this.externalUserId,
+        threadId: this.threadId,
+        rawExcerpt,
+        canaryHit: false,
+      });
+    } catch (error) {
+      this.logger.error('Failed to audit tool-output block', {
+        toolName: this.toolName,
+        referenceId: decision.referenceId,
+        error: (error as Error).message,
+      });
+    }
+    // Reference the category so lint doesn't complain about the unused field
+    // and future readers can see how it's used to scope the audit reason.
+    this.logger.info('Tool output blocked by detection', {
+      toolName: this.toolName,
+      category: this.category,
+      referenceId: decision.referenceId,
     });
   }
 }

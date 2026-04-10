@@ -24,6 +24,10 @@ mock.module('../providers/registry', () => ({
       modelId: model ?? 'default-model',
     }),
     has: () => true,
+    // Added when `getProvider()` learned to consult `isConfigured()` for the
+    // OAuth-token fallback; returning `true` preserves this suite's
+    // pre-existing assumption that the requested provider is always available.
+    isConfigured: () => true,
   }),
 }));
 

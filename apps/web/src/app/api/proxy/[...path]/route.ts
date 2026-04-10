@@ -46,6 +46,22 @@ async function proxyRequest(
     if (value) headers.set(name, value);
   }
 
+  // Forward the authenticated web-session user identity to the backend as
+  // `X-User-Id`. This is derived exclusively from `session.user` — NEVER
+  // from an incoming request header — so a malicious client cannot
+  // impersonate another user by spoofing the header. The backend uses this
+  // value to enforce per-channel admin membership (FR-033 detection-
+  // overrides route and any future admin-only REST endpoints).
+  //
+  // Prefer email when present (Google OAuth always provides it) because
+  // that's the canonical admin identifier across Slack and the web UI.
+  // Fall back to the auth.js user id as a last resort. If neither is set,
+  // the backend write handler will return 400 ('X-User-Id header required').
+  const sessionUserId = session.user.email ?? session.user.id ?? '';
+  if (sessionUserId) {
+    headers.set('X-User-Id', sessionUserId);
+  }
+
   const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.text();
 
   let backendResponse: Response;

@@ -1,0 +1,109 @@
+### Per-channel detection override CRUD
+### FR-033: allowlist / block-override / trust-mcp-tool entries
+### Route file: apps/api/src/routes/detection-audit.ts (NEW — same file as detection-audit.http)
+
+@host = http://localhost:4000
+@apiSecret = REPLACE_ME_WITH_API_SECRET
+@channelId = 550e8400-e29b-41d4-a716-446655440000
+@overrideId = REPLACE_ME_WITH_OVERRIDE_UUID
+
+### ---------------------------------------------------------------
+### 1. GET all overrides for a channel
+### ---------------------------------------------------------------
+GET {{host}}/api/channels/{{channelId}}/detection-overrides
+Authorization: Bearer {{apiSecret}}
+
+### Success response (200):
+### {
+###   "data": {
+###     "overrides": [
+###       {
+###         "id": "uuid",
+###         "channelId": "uuid",
+###         "overrideKind": "allowlist_signature",
+###         "targetKey": "corpus_v1_sig_042",
+###         "justification": "Security team reviewing documentation; pattern is a false positive in their workflow",
+###         "createdBy": "U0456BOB",
+###         "createdAt": "2026-04-09T18:51:47.000Z",
+###         "updatedAt": "2026-04-09T18:51:47.000Z"
+###       }
+###     ]
+###   }
+### }
+
+### Error responses: 401, 403, 404
+
+
+### ---------------------------------------------------------------
+### 2. POST create a new override
+### ---------------------------------------------------------------
+POST {{host}}/api/channels/{{channelId}}/detection-overrides
+Authorization: Bearer {{apiSecret}}
+Content-Type: application/json
+
+{
+  "overrideKind": "allowlist_signature",
+  "targetKey": "corpus_v1_sig_042",
+  "justification": "Security team reviewing documentation; pattern is a false positive in their workflow"
+}
+
+### Request body variants:
+
+### Variant A — allowlist a base-corpus signature for this channel:
+### {
+###   "overrideKind": "allowlist_signature",
+###   "targetKey": "corpus_v1_sig_042",         // signature_id from the committed corpus
+###   "justification": "required, min 10 chars"
+### }
+
+### Variant B — add a channel-specific block phrase:
+### {
+###   "overrideKind": "block_phrase",
+###   "targetKey": "internal_project_codename_alpha_bravo",  // 3..500 chars
+###   "justification": "leaking this codename is an internal policy violation"
+### }
+
+### Variant C — mark an MCP tool as trusted for this channel (moves it from Category 3 to Category 1 for this channel only):
+### {
+###   "overrideKind": "trust_mcp_tool",
+###   "targetKey": "internal_mcp_database_read",  // must match a tool name exposed by an enabled MCP config
+###   "justification": "Our internal database MCP server returns only structured rows, no user-controlled text"
+### }
+
+### Success response (201):
+### { "data": { "id": "uuid", ... } }
+
+### Error responses:
+###   400 — Zod validation failed (bad overrideKind, missing fields, targetKey out of bounds)
+###   401 — invalid bearer
+###   403 — caller is not in channelAdmins
+###   404 — channelId does not exist; OR targetKey does not resolve (e.g., MCP tool name not found)
+###   409 — unique constraint violation (duplicate override)
+
+
+### ---------------------------------------------------------------
+### 3. PATCH update an existing override (justification only)
+### ---------------------------------------------------------------
+PATCH {{host}}/api/channels/{{channelId}}/detection-overrides/{{overrideId}}
+Authorization: Bearer {{apiSecret}}
+Content-Type: application/json
+
+{
+  "justification": "Updated rationale after further review"
+}
+
+### Request body: { "justification": string }
+### targetKey and overrideKind are NOT editable — delete and recreate instead.
+
+### Success response (200): updated override
+### Error responses: 400, 401, 403, 404
+
+
+### ---------------------------------------------------------------
+### 4. DELETE an override
+### ---------------------------------------------------------------
+DELETE {{host}}/api/channels/{{channelId}}/detection-overrides/{{overrideId}}
+Authorization: Bearer {{apiSecret}}
+
+### Success response (204): no body
+### Error responses: 401, 403, 404

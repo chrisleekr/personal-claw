@@ -106,6 +106,13 @@
       "when": 1775568086736,
       "tag": "0014_stale_namora",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1775737713696,
+      "tag": "0015_light_eternity",
+      "breakpoints": true
     }
   ]
 }

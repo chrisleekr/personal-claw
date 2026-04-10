@@ -1,6 +1,6 @@
 # personal-claw Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-04-08
+Auto-generated from all feature plans. Last updated: 2026-04-10
 
 ## Active Technologies
 - TypeScript 5.7+ (strict mode, zero `any`) + Bun 1.3.9 + Hono (API), `ai` (Vercel AI SDK v6), `ollama-ai-provider-v2` v3.3.1 (already installed) (20260406-221125-ollama-embedding-provider)
@@ -11,6 +11,8 @@ Auto-generated from all feature plans. Last updated: 2026-04-08
 - PostgreSQL with pgvector (via `packages/db`) (20260407-224250-fix-auth-bypass)
 - YAML (GitHub Actions workflow syntax) — no TypeScript code changes + `anthropics/claude-code-action@v1`, `actions/checkout@v6` (20260408-190912-scheduled-research-workflow)
 - N/A — no database changes (20260408-190912-scheduled-research-workflow)
+- TypeScript 5.7+ in strict mode, zero `any` (Constitution I). Runtime: Bun 1.3.9 (`packageManager` in `package.json`). (20260409-185147-injection-defense-pipeline)
+- PostgreSQL with `pgvector` extension already in use. Verified present: (20260409-185147-injection-defense-pipeline)
 
 - TypeScript 5.7+ (strict mode, zero `any`) + Bun 1.3.9 (runtime + test runner), Hono (API framework), LogTape (logging) (20260406-201317-sandbox-env-allowlist)
 
@@ -32,8 +34,9 @@ bun run check
 TypeScript 5.7+ (strict mode, zero `any`): Follow standard conventions
 
 ## Recent Changes
+- 20260409-185147-injection-defense-pipeline: Added TypeScript 5.7+ in strict mode, zero `any` (Constitution I). Runtime: Bun 1.3.9 (`packageManager` in `package.json`).
+- 20260409-185147-injection-defense-pipeline: Added TypeScript 5.7+ in strict mode, zero `any` (Constitution I). Runtime: Bun 1.3.9 (`packageManager` in `package.json`).
 - 20260408-190912-scheduled-research-workflow: Added YAML (GitHub Actions workflow syntax) — no TypeScript code changes + `anthropics/claude-code-action@v1`, `actions/checkout@v6`
-- 20260407-224250-fix-auth-bypass: Added TypeScript 5.7+ (strict mode, zero `any`) + Bun 1.3.9 + Hono (API), Bun ServerWebSocket, Drizzle ORM, LogTape, Zod, `@personalclaw/shared`
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

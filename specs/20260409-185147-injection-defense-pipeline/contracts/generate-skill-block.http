@@ -1,0 +1,49 @@
+### generate-skill endpoint — FR-019 structured block response
+### Route file: apps/api/src/routes/conversations.ts (MODIFIED)
+### Existing route; this contract documents the NEW behavior when detection blocks the request
+
+@host = http://localhost:4000
+@apiSecret = REPLACE_ME_WITH_API_SECRET
+@channelId = 550e8400-e29b-41d4-a716-446655440000
+@conversationId = REPLACE_ME_WITH_CONVERSATION_UUID
+
+### ---------------------------------------------------------------
+### POST generate a skill draft from a conversation
+### Existing happy-path is unchanged (returns 200 with { data: SkillDraft })
+### NEW behavior: if any user message or tool-call-derived field is blocked
+### by the detection pipeline, the endpoint returns HTTP 422 with the
+### structured body documented in FR-004.
+### ---------------------------------------------------------------
+POST {{host}}/api/conversations/{{channelId}}/{{conversationId}}/generate-skill
+Authorization: Bearer {{apiSecret}}
+
+### Happy-path success response (200) — UNCHANGED:
+### {
+###   "data": {
+###     "name": "Deploy to staging",
+###     "content": "## When to use\n..."
+###   }
+### }
+
+### NEW blocked response (422) — FR-004 structured body:
+### HTTP/1.1 422 Unprocessable Entity
+### Content-Type: application/json
+###
+### {
+###   "error": "DETECTION_BLOCKED",
+###   "reason_code": "CLASSIFIER_ADVERSARIAL",
+###   "reference_id": "a1b2c3d4e5f6",
+###   "layers_fired": ["normalize", "classifier"],
+###   "message": "One of the stored conversation messages was rejected as a suspected prompt injection attempt. Reference a1b2c3d4e5f6 — share this with an admin to request review."
+### }
+
+### Error responses:
+###   400 — NO_TOOL_CALLS (existing; conversation has no tool calls to build a skill from)
+###   401 — invalid or missing Bearer token
+###   404 — channelId or conversationId not found
+###   422 — DETECTION_BLOCKED (NEW — per FR-004, FR-019)
+###   500 — GENERATION_FAILED (existing; LLM call failed)
+
+### Note: the DETECTION_BLOCKED response takes precedence over NO_TOOL_CALLS.
+### If the conversation has tool calls AND any piece is blocked, the 422 is returned.
+### If the conversation has no tool calls, the existing 400 is returned without running detection.

@@ -18,6 +18,8 @@ import { getSandboxTools } from '../sandbox/tools';
 import type { Sandbox } from '../sandbox/types';
 import { errorDetails } from '../utils/error-fmt';
 import { ApprovalGateway, type DismissedPlan } from './approval-gateway';
+import type { DetectionEngine } from './detection/engine';
+import type { CanaryToken } from './detection/types';
 import type { GuardrailsEngine } from './guardrails';
 import type { PromptComposer } from './prompt-composer';
 import { getProviderWithFallback, resolveProviderEntry } from './provider';
@@ -62,14 +64,105 @@ export interface PipelineContext {
   toolTimings?: Map<string, number>;
   getDismissedPlan?: () => DismissedPlan | null;
   sandbox?: Sandbox;
+  /**
+   * Per-request canary token attached in `composePromptStage` and consumed
+   * in `postProcessStage` per FR-020. Null when the channel has
+   * canaryTokenEnabled set to false.
+   */
+  canary?: CanaryToken | null;
+  /**
+   * True when preProcessStage flagged the input as suspicious but did not
+   * block it (FR-005). Downstream approval checks MUST NOT auto-execute
+   * tools when this is true.
+   */
+  detectionFlagged?: boolean;
+  /**
+   * Structured block notice surfaced when preProcessStage caught a
+   * DetectionBlockedError. Set to a non-empty string on block; the
+   * generate stage checks this and skips the LLM call.
+   */
+  detectionBlockResponse?: string;
 }
 
 export type PipelineStage = (ctx: PipelineContext) => Promise<PipelineContext>;
 
-export function preProcessStage(guardrails: GuardrailsEngine): PipelineStage {
+/**
+ * Extracts the last N `role: 'user'` conversation messages from stored
+ * history. Used by `preProcessStage` to feed the FR-012 multi-turn window
+ * into the detection engine.
+ *
+ * N is hardcoded to 10 per FR-012. Changing it requires a PR review.
+ */
+function extractRecentUserHistory(history: readonly ConversationMessage[], n = 10): string[] {
+  const userMessages: string[] = [];
+  for (let i = history.length - 1; i >= 0 && userMessages.length < n; i--) {
+    const m = history[i];
+    if (m.role === 'user' && m.content) {
+      userMessages.push(m.content);
+    }
+  }
+  return userMessages.reverse();
+}
+
+/**
+ * Runs the input-side detection pipeline over the incoming message. Loads
+ * the FR-012 multi-turn history window via `memoryEngine.assembleContext()`
+ * directly so it does not depend on `ctx.messages` having been built yet.
+ * On `DetectionBlockedError`, populates `ctx.detectionBlockResponse` with
+ * a user-facing notice per FR-004.
+ */
+export function preProcessStage(
+  guardrails: GuardrailsEngine,
+  memoryEngine: MemoryEngine,
+): PipelineStage {
   return async (ctx) => {
-    const validated = await guardrails.preProcess(ctx.params);
-    return { ...ctx, input: validated.text };
+    // Load recent user history independently of assembleContextStage so the
+    // FR-012 window is available for detection before the full context is
+    // built. This is a lightweight call — memoryEngine caches aggressively.
+    let recentHistory: string[] = [];
+    try {
+      const assembled = await memoryEngine.assembleContext(
+        ctx.params.channelId,
+        ctx.params.threadId,
+      );
+      recentHistory = extractRecentUserHistory(assembled.messages);
+    } catch (error) {
+      logger.warn('Failed to load history for detection window; proceeding with empty window', {
+        channelId: ctx.params.channelId,
+        error: (error as Error).message,
+      });
+    }
+
+    try {
+      const validated = await guardrails.preProcess({
+        channelId: ctx.params.channelId,
+        text: ctx.params.text,
+        externalUserId: ctx.params.userId,
+        threadId: ctx.params.threadId,
+        recentHistory,
+      });
+      return { ...ctx, input: validated.text, detectionFlagged: validated.flagged };
+    } catch (error) {
+      const { DetectionBlockedError } = await import('./guardrails');
+      if (error instanceof DetectionBlockedError) {
+        logger.info('Detection pipeline blocked input', {
+          channelId: ctx.params.channelId,
+          threadId: ctx.params.threadId,
+          referenceId: error.decision.referenceId,
+          reasonCode: error.decision.reasonCode,
+          layersFired: error.decision.layersFired,
+        });
+        return {
+          ...ctx,
+          detectionBlockResponse:
+            `⚠️ Your message was rejected as a suspected prompt injection attempt.\n` +
+            `Reference: ${error.decision.referenceId}\n` +
+            `Reason: ${error.decision.reasonCode}\n` +
+            `Share this reference with a channel admin to request review.`,
+        };
+      }
+      throw error;
+    }
   };
 }
 
@@ -164,43 +257,72 @@ export function loadToolsStage(toolRegistry: ToolRegistry): PipelineStage {
   };
 }
 
-export const wrapApprovalStage: PipelineStage = async (ctx) => {
-  // verifiedUserId=true: all current invocations come through platform adapters
-  // (Slack Bolt) which verify request signatures before events reach handlers.
-  const gateway = new ApprovalGateway(
-    ctx.params.channelId,
-    ctx.params.threadId,
-    ctx.params.userId,
-    ctx.params.adapter,
-    ctx.safeToolNames,
-    true,
-  );
-
-  // Tools with "auto" approval policy should be treated as safe/autonomous
-  // so the system prompt doesn't force the model through confirm_plan.
-  const autoApproved = await gateway.getAutoApprovedNames(Object.keys(ctx.tools));
-  const mergedSafeNames = new Set([...ctx.safeToolNames, ...autoApproved]);
-
-  const wrappedTools = gateway.wrapTools(ctx.tools);
-  const confirmPlanTool = gateway.getConfirmPlanTool();
-  return {
-    ...ctx,
-    safeToolNames: mergedSafeNames,
-    tools: { confirm_plan: confirmPlanTool, ...wrappedTools },
-    toolTimings: gateway.toolTimings,
-    getDismissedPlan: () => gateway.lastPlan,
-  };
-};
-
-export function composePromptStage(promptComposer: PromptComposer): PipelineStage {
+/**
+ * Factory for the wrap-approval stage. Takes a `DetectionEngine` so the
+ * gateway can filter untrusted tool outputs per FR-006 / FR-030.
+ */
+export function wrapApprovalStage(detectionEngine: DetectionEngine): PipelineStage {
   return async (ctx) => {
+    // verifiedUserId=true: all current invocations come through platform adapters
+    // (Slack Bolt) which verify request signatures before events reach handlers.
+    // detectionFlagged forwards the FR-005 invariant: when the detection
+    // pipeline flagged the turn, no tool auto-executes regardless of policy.
+    // The detection engine is injected so the gateway can route Category 3/4
+    // tool outputs through detection per FR-006.
+    const gateway = new ApprovalGateway(
+      ctx.params.channelId,
+      ctx.params.threadId,
+      ctx.params.userId,
+      ctx.params.adapter,
+      ctx.safeToolNames,
+      true,
+      ctx.detectionFlagged ?? false,
+      detectionEngine,
+    );
+
+    // Tools with "auto" approval policy should be treated as safe/autonomous
+    // so the system prompt doesn't force the model through confirm_plan.
+    const autoApproved = await gateway.getAutoApprovedNames(Object.keys(ctx.tools));
+    const mergedSafeNames = new Set([...ctx.safeToolNames, ...autoApproved]);
+
+    const wrappedTools = gateway.wrapTools(ctx.tools);
+    const confirmPlanTool = gateway.getConfirmPlanTool();
+    return {
+      ...ctx,
+      safeToolNames: mergedSafeNames,
+      tools: { confirm_plan: confirmPlanTool, ...wrappedTools },
+      toolTimings: gateway.toolTimings,
+      getDismissedPlan: () => gateway.lastPlan,
+    };
+  };
+}
+
+/**
+ * Composes the system prompt and injects the per-request canary token
+ * (FR-020) at the END of the prompt inside a DO_NOT_ECHO marker block.
+ *
+ * Short-circuits the composition entirely when a prior stage set
+ * `detectionBlockResponse` — in that case there is no LLM call and the
+ * system prompt is not needed.
+ */
+export function composePromptStage(
+  promptComposer: PromptComposer,
+  guardrails: GuardrailsEngine,
+): PipelineStage {
+  return async (ctx) => {
+    // Skip prompt composition entirely when detection already blocked the input.
+    if (ctx.detectionBlockResponse) {
+      return ctx;
+    }
     const { systemPrompt, loadedSkillIds } = await promptComposer.compose(
       ctx.params.channelId,
       ctx.memories,
       Object.keys(ctx.tools),
       ctx.safeToolNames,
     );
-    return { ...ctx, systemPrompt, loadedSkillIds };
+    const canary = await guardrails.generateCanaryForChannel(ctx.params.channelId);
+    const finalPrompt = guardrails.injectCanaryIntoPrompt(systemPrompt, canary);
+    return { ...ctx, systemPrompt: finalPrompt, loadedSkillIds, canary };
   };
 }
 
@@ -262,6 +384,18 @@ function shouldTryNextFallback(error: unknown): boolean {
 }
 
 export const generateStage: PipelineStage = async (ctx) => {
+  // If detection already blocked the input, skip the LLM call entirely and
+  // propagate the block notice as the final response.
+  if (ctx.detectionBlockResponse) {
+    return {
+      ...ctx,
+      response: ctx.detectionBlockResponse,
+      toolCallRecords: [],
+      providerName: 'none',
+      model: 'none',
+    };
+  }
+
   const { provider, model, providerName, fallbackChain } = await getProviderWithFallback(
     ctx.params.channelId,
   );
@@ -363,9 +497,24 @@ export const generateStage: PipelineStage = async (ctx) => {
   };
 };
 
+/**
+ * Runs PII redaction and the output-side canary check (FR-020) over the
+ * final response. When detection already blocked the input at
+ * `preProcessStage`, this stage still runs so the block notice goes
+ * through PII redaction for consistency, but the canary check is a no-op
+ * because `ctx.canary` is null on the block path.
+ */
 export function postProcessStage(guardrails: GuardrailsEngine): PipelineStage {
   return async (ctx) => {
-    const sanitized = await guardrails.postProcess(ctx.response, ctx.params.channelId);
+    const sanitized = await guardrails.postProcess(
+      ctx.response,
+      ctx.params.channelId,
+      ctx.canary ?? null,
+      {
+        externalUserId: ctx.params.userId,
+        threadId: ctx.params.threadId,
+      },
+    );
     return { ...ctx, response: sanitized };
   };
 }

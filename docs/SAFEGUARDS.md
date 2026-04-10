@@ -1,16 +1,18 @@
 # PersonalClaw Safeguards
 
-> Human-in-the-loop approval system for safe AI agent execution. Updated: February 2026.
+> Human-in-the-loop approval system for safe AI agent execution. Updated: April 2026.
 
 ## Table of Contents
 
 1. [Overview and Threat Model](#overview-and-threat-model)
-2. [Two-Layer Architecture](#two-layer-architecture)
-3. [Approval Policy Configuration](#approval-policy-configuration)
-4. [UX Flow Examples](#ux-flow-examples)
-5. [Developer Guide](#developer-guide)
-6. [Timeout and Error Behavior](#timeout-and-error-behavior)
-7. [Audit Trail](#audit-trail)
+2. [Multi-Layer Detection Pipeline](#multi-layer-detection-pipeline)
+3. [Two-Layer Architecture](#two-layer-architecture)
+4. [Approval Policy Configuration](#approval-policy-configuration)
+5. [UX Flow Examples](#ux-flow-examples)
+6. [Developer Guide](#developer-guide)
+7. [Timeout and Error Behavior](#timeout-and-error-behavior)
+8. [Audit Trail](#audit-trail)
+9. [Known Limitations](#known-limitations)
 
 ---
 
@@ -25,15 +27,117 @@ PersonalClaw executes tools on behalf of users in messaging channels. Without sa
 | Unsolicited actions | LLM runs extra tools "to be helpful" | Plan confirmation gates all tool execution |
 | Ambiguous intent | User says "delete it" — delete what? | System prompt enforces clarification before action |
 | Destructive tool calls | `aws ec2 terminate-instances` | CLI regex validator + per-tool approval policies |
-| Prompt injection | Input tricks the LLM into calling tools | Guardrails pre-processing + plan confirmation adds a human checkpoint |
+| Prompt injection | Input tricks the LLM into calling tools | **Multi-layer detection pipeline** (normalize, structural separation, heuristics, pgvector similarity, LLM classifier) + canary token + plan confirmation |
+| Split-turn injection | Attack spread across multiple messages | Detection pipeline evaluates the last 10 user messages from thread history per FR-012 |
+| Indirect injection via tool output | Attacker-controlled web content fed to the LLM | Tool outputs classified by tiered trust registry; untrusted outputs routed through detection before entering LLM context |
+| Poisoned memory recall | Attacker-written memory persisted across turns | `MemoryEngine.assembleContext()` routes recalled memories through detection before system-prompt assembly (FR-025) |
+| System prompt leak | Model echoes internal instructions | Per-request canary token in system prompt + post-processing scan (FR-020) |
 | Unauthorized access | User runs tools they shouldn't have access to | Per-tool allowlist policy restricts by user ID |
 
 ### Design Principles
 
 - **Defense in depth**: Multiple independent layers, each sufficient to block unauthorized actions
-- **Fail-closed**: If any safeguard layer cannot determine safety, it denies the action
+- **Fail-closed**: If any safeguard layer cannot determine safety, it denies the action on `strict` profile (FR-011)
 - **Human authority**: The human always has final say — no tool executes without explicit or policy-based approval
-- **Transparency**: Every approval decision is logged, every denial is reported to the user
+- **Transparency**: Every approval decision and every detection decision is logged, every denial is reported to the user with a reference id (FR-004)
+- **No silent failures**: Detection layer errors surface as structured results (FR-017, FR-029); the `HooksEngine.emit()` aggregate-and-return API ensures hook handler errors are not silently swallowed
+
+---
+
+## Multi-Layer Detection Pipeline
+
+**Added in April 2026**, replacing the two-line regex content filter (issues [#35](https://github.com/chrisleekr/personal-claw/issues/35) and [#9](https://github.com/chrisleekr/personal-claw/issues/9)).
+
+The detection pipeline runs **before** the existing plan-confirmation + approval-gateway layers and forms the outermost ring of defense. It evaluates every user-supplied input, every untrusted tool output, every recalled channel memory, and every input to the generate-skill endpoint.
+
+```mermaid
+flowchart TD
+    INPUT["Untrusted content<br/>user msg / tool result /<br/>memory recall / generate-skill"]:::inputNode --> LAY1["Layer a: Normalize<br/>Unicode NFC, homoglyphs,<br/>zero-width strip, base64 detect"]:::layerNode
+    LAY1 --> LAY2["Layer b: Structural separation<br/>wrapAsUntrusted — never concat<br/>untrusted content into system prompt"]:::layerNode
+    LAY2 --> LAY3["Layer c: Heuristics<br/>Signal scoring against<br/>committed corpus of 52 plus signatures"]:::layerNode
+    LAY3 --> LAY4["Layer d: pgvector similarity<br/>Cosine distance with two thresholds<br/>fire 0.85, short-circuit 0.92"]:::layerNode
+    LAY4 --> SHRT{"Short-circuit?"}:::decisionNode
+    SHRT -->|"Yes"| DCDE["Compose decision"]:::decisionNode
+    SHRT -->|"No"| LAY5["Layer e: LLM classifier<br/>Ollama gemma4:latest<br/>Cost tracked per Constitution VII"]:::layerNode
+    LAY5 --> DCDE
+    DCDE --> ACTN{"action"}:::decisionNode
+    ACTN -->|"block"| BLKD["HTTP 422 / Slack notice<br/>with reference id FR-004"]:::blockNode
+    ACTN -->|"flag"| FLGD["Pass to LLM but<br/>tighten approval gateway:<br/>no tools auto-execute FR-005"]:::layerNode
+    ACTN -->|"allow"| ALWD["Pass to LLM unchanged"]:::layerNode
+    ALWD --> CNRY["Post-process: canary check<br/>Layer f: scan response for leaked<br/>pc_canary tokens FR-020"]:::layerNode
+    FLGD --> CNRY
+    CNRY --> RESP["Response delivered"]:::outputNode
+    BLKD --> ADTE["detection_audit_events row<br/>+ guardrail:detection hook"]:::auditNode
+    DCDE --> ADTE
+
+    classDef inputNode fill:#1a5276,color:#ffffff
+    classDef layerNode fill:#196f3d,color:#ffffff
+    classDef decisionNode fill:#7d6608,color:#ffffff
+    classDef blockNode fill:#922b21,color:#ffffff
+    classDef auditNode fill:#6c3483,color:#ffffff
+    classDef outputNode fill:#117864,color:#ffffff
+```
+
+### Layer-by-layer breakdown
+
+| Layer | File | Purpose | Typical latency |
+|---|---|---|---|
+| a. Normalize | `apps/api/src/agent/detection/normalize.ts` | Unicode NFC, zero-width strip, homoglyph fold, whitespace collapse, case lower, base64 detect | <1 ms |
+| b. Structural separation | `apps/api/src/agent/detection/structural.ts` | `wrapAsUntrusted()` + `assertNoConcatenation()` — the detection engine itself records this as a no-op in the audit trail; the guarantee is enforced at call sites | 0 ms |
+| c. Heuristics | `apps/api/src/agent/detection/heuristics.ts` | Signal scoring against the committed `signatures.json` with per-severity weights and category-density bonus | <1 ms |
+| d. pgvector similarity | `apps/api/src/agent/detection/similarity.ts` | Cosine distance query against `detection_corpus_embeddings` (HNSW index) with two thresholds: fire (default 0.85) and short-circuit (default 0.92). Embedding generation via Ollama `mxbai-embed-large` dominates the layer cost. | ~45 ms p95 |
+| e. LLM classifier | `apps/api/src/agent/detection/classifier.ts` | Structured JSON verdict via the channel's configured provider; defaults to Ollama `gemma4:latest` (see `getClassifierProvider()` fallback). `CostTracker.log()` called on every success per Constitution VII. Skipped when the similarity layer short-circuits at ≥ 0.92 cosine similarity (the common case for known attacks). | ~1200 ms p95 on dev Ollama gemma4; ~200–500 ms on cloud small models. Bounded per channel by `detection.classifierTimeoutMs` (default 3000 ms). |
+| f. Canary token | `apps/api/src/agent/detection/canary.ts` | Per-request random `pc_canary_<hex>` embedded in the system prompt inside a `<internal_state DO_NOT_ECHO>` block; `postProcessStage` scans the response for the canary or its prefix after normalization | <1 ms |
+
+**Latency budget (SC-003, two-tier as of 2026-04-10)**:
+
+- **SC-003a** (known-attack fast path, short-circuit at layer d): ≤ **60 ms p95**. This is the SLO for real attack traffic — known variants fail fast so the user sees an instant block notice.
+- **SC-003b** (full pipeline, benign + novel attack): ≤ **`detection.classifierTimeoutMs + 200 ms` p95**. The slow-path budget is coupled to the operator-configurable timeout so switching classifier model or hardware automatically tightens the SLO without a spec rewrite.
+- See `specs/20260409-185147-injection-defense-pipeline/benchmark-results.md` for the reproducible measurement protocol and the Run #2c numbers measured against real Ollama gemma4 on a dev workstation (both sub-items pass).
+
+### Configuration
+
+Detection is tuned per channel via `guardrailsConfig` on the channels table:
+
+- **`defenseProfile`**: `strict` (fail-closed), `balanced` (fail-open), or `permissive` (fail-open plus minimum floor — unambiguously malicious payloads still block per FR-008). Default is `strict` for channels with approval-gated tools, derived at load time from the pre-existing `contentFiltering` boolean for backward compat (FR-023).
+- **`canaryTokenEnabled`**: Boolean, default `true`. Setting to `false` disables canary injection and the post-processing scan without affecting the input-side layers (FR-021).
+- **`auditRetentionDays`**: Integer `[1, 90]`, default `7`. Enforced by the cleanup cron job that deletes rows from `detection_audit_events` older than the window (FR-022, FR-028).
+- **`detection.heuristicThreshold`**: Risk score above which heuristics fires, default `60`.
+- **`detection.similarityThreshold`**: Cosine similarity above which pgvector layer fires, default `0.85`.
+- **`detection.similarityShortCircuitThreshold`**: Cosine similarity above which pgvector short-circuits the pipeline, default `0.92`. Must be `>=` `similarityThreshold` (cross-field constraint enforced by Zod at config save time).
+- **`detection.classifierEnabled`**: Toggle the LLM classifier layer. **Per-profile default** (Phase 6 Option 2, 2026-04-10): `true` for `strict` profile, `false` for `balanced` and `permissive` profiles. An explicit per-channel setting always wins — an operator can opt into the classifier on balanced (accepting the ~1.2 s benign latency and 9.6 % FP rate on local gemma4) or opt out on strict (accepting weakened novel-attack defense). Rationale: the strict profile needs the LLM backstop for channels with destructive tools, while balanced/permissive profiles prioritise low FP rate and interactive latency. See `spec.md` §SC-002 rationale.
+- **`detection.classifierTimeoutMs`**: Classifier timeout in ms, default `3000`.
+
+### Attack corpus
+
+- Committed at `packages/shared/src/injection-corpus/signatures.json` — updates land only via PR review per FR-032. No runtime write path.
+- Loaded at API process startup by `initDetectionCorpus()` which generates embeddings via the configured `EMBEDDING_PROVIDER` and upserts into `detection_corpus_embeddings` keyed by `(signature_id, provider, source_version)`. Failures at startup are FATAL per research R10.
+- Per-channel overrides live in the `detection_overrides` table — admins can allowlist base signatures (for false-positive relief), add channel-specific block phrases, or mark specific MCP tool names as trusted. Changes take effect within one config cache refresh cycle (FR-018, FR-033).
+
+### Tiered tool-output trust
+
+Tool outputs are classified by `apps/api/src/agent/tool-trust.ts` into four categories per FR-030:
+
+| Category | Behavior | Examples |
+|---|---|---|
+| `system_generated` | Bypass detection (no attacker path) | `confirm_plan`, `sandbox_write_file` return values, `sandbox_workspace_info` |
+| `already_detected` | Bypass detection (upstream filtered) | `memory_search`, `memory_list` (protected by FR-025 recall-time detection) |
+| `external_untrusted` | Route through detection before entering LLM context | `browser_scrape`, `curl_fetch`, `sandbox_exec`, `sandbox_read_file` |
+| `mixed` | Untrusted by default; opt-in trusted subcommands | `aws_cli`, `github_cli`, `sandbox_list_files`, `schedule_list` |
+
+New tools default to `external_untrusted` until an author explicitly adds an entry to `TOOL_TRUST_REGISTRY` with a justification. The FR-031 self-test at `apps/api/src/agent/__tests__/tool-trust.test.ts` fails the build if any statically-registered tool is missing from the registry.
+
+### Audit trail
+
+Every non-allow decision (block, flag, neutralize) and every allow-with-non-zero-score is persisted to `detection_audit_events` with:
+
+- Reference id (shown to users per FR-004)
+- Decision, risk score, layers fired, reason code
+- PII-masked excerpt of the triggering input (via `maskPII()`)
+- Source kind (`user_message`, `tool_result`, `memory_recall`, `conversation_history`, `generate_skill_input`, `canary_leak`)
+- `canary_hit` flag for output-side blocks
+
+The table is the **system of record** — the `guardrail:detection` hook is best-effort per FR-027 and MUST NOT be relied on for durability. Admin triage (marking a block as a false positive) writes to `detection_audit_annotations`, a separate table that preserves the immutability of audit events.
 
 ---
 
@@ -537,3 +641,15 @@ FROM conversations c,
 WHERE tc->>'requiresApproval' = 'true'
 ORDER BY msg->>'timestamp' DESC;
 ```
+
+---
+
+## Known Limitations
+
+The multi-layer detection pipeline introduced in April 2026 has explicit scope boundaries that admins should be aware of:
+
+- **Images with embedded text are not inspected.** OCR-based detection is out of scope for v1. A screenshot containing an injection instruction rendered as text will NOT be caught by the detection pipeline — the pipeline relies on the downstream approval gates (Plan Confirmation, Approval Gateway) to catch any resulting actions. If a user attaches an image with instruction text, the LLM may still act on it as if the user typed the text directly. Admins should be aware of this when configuring channels that both accept image attachments and have approval-gated tools enabled.
+- **Multi-turn history window is bounded to the last 10 `role: 'user'` messages.** Per FR-012, the detection engine considers only the 10 most recent user messages from the current thread's stored history when evaluating coordinated multi-message attacks. Attackers who spread an injection across more than 10 user turns may evade the window-based signal, though they are still subject to every single-turn layer on the current input. The window size is a constant in the detection engine — changing it requires a PR.
+- **Cross-thread correlation is not performed.** An attacker preparing an injection in thread A and triggering it in thread B is not covered by the v1 pipeline. This is explicitly deferred to follow-up work.
+- **`intentClassification` flag is deprecated.** The pre-existing `guardrails.preProcessing.intentClassification` boolean is retained in the Zod schema for backward compatibility (FR-024) but is ignored by the pipeline. A single deprecation warning is logged per process the first time any channel config is loaded with the flag set. The field will be removed in a follow-up release.
+- **MCP tool outputs default to untrusted.** Because MCP tool names are dynamic and per-channel, the static `TOOL_TRUST_REGISTRY` cannot enumerate them. The fallback in `getToolTrustCategory()` returns `external_untrusted` for any unknown tool name. Admins can mark specific MCP tools as trusted per-channel via the `trust_mcp_tool` override in the `detection_overrides` table.
