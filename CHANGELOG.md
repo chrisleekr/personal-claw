@@ -1,3 +1,10 @@
+## [1.2.10](https://github.com/chrisleekr/personal-claw/compare/v1.2.9...v1.2.10) (2026-04-12)
+
+
+### Bug Fixes
+
+* **research:** adjust schedule time ([0f725e6](https://github.com/chrisleekr/personal-claw/commit/0f725e6a9030ef8db18c8238b1a6bca9d029d41f))
+
 ## [1.2.9](https://github.com/chrisleekr/personal-claw/compare/v1.2.8...v1.2.9) (2026-04-08)
 
 
