@@ -83,7 +83,7 @@ export interface DetectionAuditEvent {
   channelId: string;
   externalUserId: string;
   threadId: string | null;
-  decision: 'allow' | 'flag' | 'neutralize' | 'block';
+  decision: 'allow' | 'flag' | 'block';
   riskScore: number;
   layersFired: string[];
   reasonCode: string;

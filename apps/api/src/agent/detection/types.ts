@@ -17,11 +17,15 @@
  * - `allow` — content passed unchanged into the LLM context
  * - `flag` — content passed into the LLM context but downstream safeguards are
  *   tightened (no tools auto-execute per FR-005), and an audit event is emitted
- * - `neutralize` — the suspicious span is rewritten (wrapped in an explicit
- *   `<untrusted_content>...</untrusted_content>` marker) before reaching the LLM
  * - `block` — content is not passed to the LLM at all; the user is notified per FR-004
+ *
+ * Note: a `neutralize` action was declared in earlier drafts but never
+ * implemented by any layer. It was removed in Phase 7 T092 (2026-04-10)
+ * after /speckit.analyze flagged it as unreachable code. The `structural`
+ * layer already wraps untrusted content via `wrapAsUntrusted()` at the
+ * call site, so a separate `neutralize` action was not needed.
  */
-export type DetectionAction = 'allow' | 'flag' | 'neutralize' | 'block';
+export type DetectionAction = 'allow' | 'flag' | 'block';
 
 /**
  * Classification of where a piece of content originated. Used by the pipeline
@@ -77,10 +81,9 @@ export interface LayerResult {
  * Structured result produced by `DetectionEngine.detect()` for a single piece
  * of untrusted content.
  *
- * Per FR-003, every field is mandatory except `neutralizedText` (only set
- * when `action === 'neutralize'`). Per FR-004, `referenceId` is surfaced to
- * end-users so they can share it with admins to request review; it matches the
- * `reference_id` column on `detection_audit_events`.
+ * Per FR-003, every field is mandatory. Per FR-004, `referenceId` is surfaced
+ * to end-users so they can share it with admins to request review; it matches
+ * the `reference_id` column on `detection_audit_events`.
  */
 export interface DetectionDecision {
   action: DetectionAction;
@@ -90,7 +93,6 @@ export interface DetectionDecision {
   redactedExcerpt: string;
   referenceId: string;
   sourceKind: SourceKind;
-  neutralizedText?: string;
 }
 
 /**
