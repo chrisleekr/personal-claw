@@ -9,5 +9,5 @@ export function createDb(connectionString: string) {
 
 export type Database = ReturnType<typeof createDb>;
 
-export { and, count, desc, eq, inArray, isNull, or, sql, sum } from 'drizzle-orm';
+export { and, count, desc, eq, gte, inArray, isNull, lt, lte, ne, or, sql, sum } from 'drizzle-orm';
 export * from './schema';

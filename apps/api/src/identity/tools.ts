@@ -58,13 +58,14 @@ export function getIdentityTools(channelId: string, userId = '', threadId = '') 
           }
 
           emitConfigChange(channelId, 'identity');
-          await hooks.emit('identity:updated', {
+          // Lifecycle notification; non-audit-critical. Discard HookEmitResult per FR-029.
+          void (await hooks.emit('identity:updated', {
             channelId,
             externalUserId: userId,
             threadId,
             eventType: 'identity:updated',
             payload: { field: 'identityPrompt', value: identityPrompt },
-          });
+          }));
 
           logger.info('Identity prompt updated', { channelId, userId });
           return { updated: true, identityPrompt: row.identityPrompt };
@@ -100,13 +101,14 @@ export function getIdentityTools(channelId: string, userId = '', threadId = '') 
           }
 
           emitConfigChange(channelId, 'identity');
-          await hooks.emit('identity:updated', {
+          // Lifecycle notification; non-audit-critical. Discard HookEmitResult per FR-029.
+          void (await hooks.emit('identity:updated', {
             channelId,
             externalUserId: userId,
             threadId,
             eventType: 'identity:updated',
             payload: { field: 'teamPrompt', value: teamPrompt },
-          });
+          }));
 
           logger.info('Team context updated', { channelId, userId });
           return { updated: true, teamPrompt: row.teamPrompt };

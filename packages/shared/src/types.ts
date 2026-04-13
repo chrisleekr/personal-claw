@@ -53,15 +53,71 @@ export interface ProviderFallbackEntry {
   model: string;
 }
 
+/**
+ * Defense profile name for the multi-layer injection detection pipeline.
+ *
+ * - `strict`: fail-closed on any layer failure; the default for channels with
+ *   approval-gated or destructive tools enabled (FR-007).
+ * - `balanced`: fail-open with a logged warning on transient layer failures.
+ * - `permissive`: maximally lenient but retains a non-disableable floor —
+ *   unambiguously malicious payloads are always blocked (FR-008).
+ */
+export type DefenseProfile = 'strict' | 'balanced' | 'permissive';
+
 export interface GuardrailsConfig {
   preProcessing: {
     contentFiltering: boolean;
+    /** @deprecated Ignored by the pipeline. Kept one release cycle for backward compat per FR-024; will be removed in a follow-up. */
     intentClassification: boolean;
     maxInputLength: number;
   };
   postProcessing: {
     piiRedaction: boolean;
     outputValidation: boolean;
+  };
+  /**
+   * Defense profile for the multi-layer injection detection pipeline.
+   *
+   * Optional for backward compatibility with existing production rows per FR-023.
+   * When absent, the `GuardrailsEngine` derives a profile at load time from
+   * `contentFiltering`:
+   * - `contentFiltering: false` → `permissive`
+   * - `contentFiltering: true` + any non-`auto` approval policy → `strict`
+   * - `contentFiltering: true` + no non-`auto` approval policy → `balanced`
+   */
+  defenseProfile?: DefenseProfile;
+  /**
+   * Enables output-side canary token injection and detection (FR-020, FR-021).
+   * Defaults to `true` via Zod. Setting to `false` disables canary injection
+   * and post-processing scan without affecting any input-side layer.
+   */
+  canaryTokenEnabled?: boolean;
+  /**
+   * Audit event retention window in days (FR-022).
+   * Defaults to 7, bounded to [1, 90]. The scheduled cron job in
+   * `apps/api/src/cron/audit-cleanup.ts` hard-deletes any
+   * `detection_audit_events` row older than this value.
+   */
+  auditRetentionDays?: number;
+  /**
+   * Detection pipeline tuning thresholds and toggles.
+   * All fields are optional with safe defaults enforced by Zod.
+   */
+  detection?: {
+    /** Risk score above which the heuristics layer fires (default 60). */
+    heuristicThreshold?: number;
+    /** Cosine similarity above which the pgvector layer fires but still runs the classifier (default 0.85). */
+    similarityThreshold?: number;
+    /**
+     * Cosine similarity above which the pgvector layer short-circuits the
+     * pipeline and skips the classifier (default 0.92). Must be >=
+     * `similarityThreshold` — enforced by Zod at config save time.
+     */
+    similarityShortCircuitThreshold?: number;
+    /** Enables the LLM-based semantic classifier layer (default true). */
+    classifierEnabled?: boolean;
+    /** Classifier timeout in milliseconds; on timeout the fail-closed / fail-open policy from FR-011 applies (default 3000). */
+    classifierTimeoutMs?: number;
   };
 }
 
@@ -216,7 +272,14 @@ export type HookEventType =
   | 'identity:updated'
   | 'budget:warning'
   | 'budget:exceeded'
-  | 'reaction:received';
+  | 'reaction:received'
+  /**
+   * Emitted by the injection detection pipeline after a decision is written
+   * to the `detection_audit_events` table, as a best-effort side-channel for
+   * external integrations. Per FR-027, this hook MUST NOT be used as the
+   * sole persistence mechanism — the table write is authoritative.
+   */
+  | 'guardrail:detection';
 
 export interface ThreadState {
   messages: ConversationMessage[];

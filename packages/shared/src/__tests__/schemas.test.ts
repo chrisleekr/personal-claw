@@ -6,6 +6,9 @@ import {
   createMCPConfigSchema,
   createScheduleSchema,
   createSkillSchema,
+  defenseProfileSchema,
+  detectionTuningSchema,
+  guardrailsConfigSchema,
   memoryCategorySchema,
   memoryConfigSchema,
   memorySaveSchema,
@@ -579,5 +582,171 @@ describe('createApprovalPolicySchema', () => {
 
   test('rejects empty toolName', () => {
     expect(() => createApprovalPolicySchema.parse({ ...valid, toolName: '' })).toThrow();
+  });
+});
+
+describe('guardrailsConfigSchema (extended for injection defense pipeline)', () => {
+  const minimalValid = {
+    preProcessing: {
+      contentFiltering: true,
+      intentClassification: false,
+      maxInputLength: 10000,
+    },
+    postProcessing: {
+      piiRedaction: false,
+      outputValidation: true,
+    },
+  };
+
+  test('parses backward-compatible row with only the old three boolean fields (FR-023)', () => {
+    const result = guardrailsConfigSchema.parse(minimalValid);
+    // New fields default to safe values without throwing.
+    expect(result.canaryTokenEnabled).toBe(true);
+    expect(result.auditRetentionDays).toBe(7);
+    expect(result.detection.heuristicThreshold).toBe(60);
+    expect(result.detection.similarityThreshold).toBe(0.85);
+    expect(result.detection.similarityShortCircuitThreshold).toBe(0.92);
+    // classifierEnabled is INTENTIONALLY undefined at the schema level. The
+    // effective default is profile-dependent and applied in
+    // `DetectionEngine.detect()` via `resolveClassifierEnabled()` — strict
+    // profile defaults to true, balanced/permissive default to false per
+    // Phase 6 Option 2 (see spec.md §SC-002). Explicit channel config
+    // overrides always win. See `detection/engine.test.ts` for the
+    // per-profile resolution assertions.
+    expect(result.detection.classifierEnabled).toBeUndefined();
+    expect(result.detection.classifierTimeoutMs).toBe(3000);
+    // defenseProfile is optional and absent by default — derived at load time by GuardrailsEngine.
+    expect(result.defenseProfile).toBeUndefined();
+  });
+
+  test('accepts an explicit defenseProfile', () => {
+    const result = guardrailsConfigSchema.parse({ ...minimalValid, defenseProfile: 'strict' });
+    expect(result.defenseProfile).toBe('strict');
+  });
+
+  test('rejects an invalid defenseProfile value', () => {
+    expect(() =>
+      guardrailsConfigSchema.parse({ ...minimalValid, defenseProfile: 'aggressive' }),
+    ).toThrow();
+  });
+
+  test('defenseProfileSchema enum is exhaustive', () => {
+    expect(defenseProfileSchema.parse('strict')).toBe('strict');
+    expect(defenseProfileSchema.parse('balanced')).toBe('balanced');
+    expect(defenseProfileSchema.parse('permissive')).toBe('permissive');
+    expect(() => defenseProfileSchema.parse('off')).toThrow();
+  });
+
+  test('auditRetentionDays bounds [1, 90] (FR-022)', () => {
+    expect(
+      guardrailsConfigSchema.parse({ ...minimalValid, auditRetentionDays: 1 }).auditRetentionDays,
+    ).toBe(1);
+    expect(
+      guardrailsConfigSchema.parse({ ...minimalValid, auditRetentionDays: 90 }).auditRetentionDays,
+    ).toBe(90);
+    expect(() =>
+      guardrailsConfigSchema.parse({ ...minimalValid, auditRetentionDays: 0 }),
+    ).toThrow();
+    expect(() =>
+      guardrailsConfigSchema.parse({ ...minimalValid, auditRetentionDays: 91 }),
+    ).toThrow();
+    expect(() =>
+      guardrailsConfigSchema.parse({ ...minimalValid, auditRetentionDays: 2.5 }),
+    ).toThrow();
+  });
+
+  test('canaryTokenEnabled defaults to true and accepts override (FR-021)', () => {
+    expect(guardrailsConfigSchema.parse(minimalValid).canaryTokenEnabled).toBe(true);
+    expect(
+      guardrailsConfigSchema.parse({ ...minimalValid, canaryTokenEnabled: false })
+        .canaryTokenEnabled,
+    ).toBe(false);
+  });
+
+  test('detectionTuningSchema enforces similarityShortCircuitThreshold >= similarityThreshold (resolves analysis finding U4 / A1)', () => {
+    // Valid: short-circuit threshold equal to fire threshold.
+    expect(() =>
+      detectionTuningSchema.parse({
+        heuristicThreshold: 60,
+        similarityThreshold: 0.85,
+        similarityShortCircuitThreshold: 0.85,
+        classifierEnabled: true,
+        classifierTimeoutMs: 3000,
+      }),
+    ).not.toThrow();
+    // Valid: short-circuit threshold above fire threshold.
+    expect(() =>
+      detectionTuningSchema.parse({
+        heuristicThreshold: 60,
+        similarityThreshold: 0.85,
+        similarityShortCircuitThreshold: 0.95,
+        classifierEnabled: true,
+        classifierTimeoutMs: 3000,
+      }),
+    ).not.toThrow();
+    // Invalid: short-circuit threshold strictly below fire threshold.
+    expect(() =>
+      detectionTuningSchema.parse({
+        heuristicThreshold: 60,
+        similarityThreshold: 0.92,
+        similarityShortCircuitThreshold: 0.85,
+        classifierEnabled: true,
+        classifierTimeoutMs: 3000,
+      }),
+    ).toThrow();
+  });
+
+  test('cross-field constraint applies inside the full guardrailsConfigSchema', () => {
+    expect(() =>
+      guardrailsConfigSchema.parse({
+        ...minimalValid,
+        detection: {
+          heuristicThreshold: 60,
+          similarityThreshold: 0.92,
+          similarityShortCircuitThreshold: 0.5,
+          classifierEnabled: true,
+          classifierTimeoutMs: 3000,
+        },
+      }),
+    ).toThrow();
+  });
+
+  test('detection bounds: heuristicThreshold [0, 100], similarity [0, 1], classifierTimeoutMs > 0', () => {
+    expect(() =>
+      detectionTuningSchema.parse({
+        heuristicThreshold: -1,
+        similarityThreshold: 0.85,
+        similarityShortCircuitThreshold: 0.92,
+        classifierEnabled: true,
+        classifierTimeoutMs: 3000,
+      }),
+    ).toThrow();
+    expect(() =>
+      detectionTuningSchema.parse({
+        heuristicThreshold: 101,
+        similarityThreshold: 0.85,
+        similarityShortCircuitThreshold: 0.92,
+        classifierEnabled: true,
+        classifierTimeoutMs: 3000,
+      }),
+    ).toThrow();
+    expect(() =>
+      detectionTuningSchema.parse({
+        heuristicThreshold: 60,
+        similarityThreshold: 1.5,
+        similarityShortCircuitThreshold: 1.5,
+        classifierEnabled: true,
+        classifierTimeoutMs: 3000,
+      }),
+    ).toThrow();
+    expect(() =>
+      detectionTuningSchema.parse({
+        heuristicThreshold: 60,
+        similarityThreshold: 0.85,
+        similarityShortCircuitThreshold: 0.92,
+        classifierEnabled: true,
+        classifierTimeoutMs: 0,
+      }),
+    ).toThrow();
   });
 });

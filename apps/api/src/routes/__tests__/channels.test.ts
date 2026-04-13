@@ -38,8 +38,13 @@ mock.module('../../db', () => ({
     delete: () => chainable(() => mockDeleteRows),
   }),
 }));
+// Track calls to `invalidateConfig` so the guardrailsConfig PATCH tests can
+// assert the config cache is invalidated after a successful write (FR-018).
+const invalidateConfigCalls: string[] = [];
 mock.module('../../channels/config-cache', () => ({
-  invalidateConfig: () => {},
+  invalidateConfig: (channelId: string) => {
+    invalidateConfigCalls.push(channelId);
+  },
   getCachedConfig: async () => null,
 }));
 mock.module('../../redis', () => ({ isRedisAvailable: () => false, getRedis: () => null }));
@@ -79,6 +84,7 @@ describe('Channels Routes', () => {
     mockInsertRows = [];
     mockUpdateRows = [];
     mockDeleteRows = [];
+    invalidateConfigCalls.length = 0;
   });
 
   afterEach(() => {
@@ -86,6 +92,7 @@ describe('Channels Routes', () => {
     mockInsertRows = [];
     mockUpdateRows = [];
     mockDeleteRows = [];
+    invalidateConfigCalls.length = 0;
   });
 
   test('GET / returns channel list', async () => {
@@ -180,5 +187,219 @@ describe('Channels Routes', () => {
     mockDeleteRows = [];
     const res = await app.request('/api/channels/nonexistent', { method: 'DELETE' });
     expect(res.status).toBe(404);
+  });
+
+  // -------------------------------------------------------------------
+  // T063 — PUT /:id extended guardrailsConfig fields
+  //
+  // The `updateChannelSchema` already accepts the full `guardrailsConfig`
+  // shape (createChannelSchema.partial() includes guardrailsConfig), and
+  // the guardrailsConfigSchema has been extended across phase 2 / 3 / 6
+  // to cover: defenseProfile, canaryTokenEnabled, auditRetentionDays,
+  // detection.* (including the new optional classifierEnabled per Option 2).
+  // These tests validate that the route accepts the new fields, validates
+  // bounds correctly, and invalidates the config cache on every write
+  // per fr-018.
+  // -------------------------------------------------------------------
+  describe('T063 — guardrailsConfig PATCH via PUT /:id', () => {
+    test('accepts all new guardrailsConfig fields (defenseProfile, canaryTokenEnabled, auditRetentionDays, detection.*)', async () => {
+      mockUpdateRows = [
+        {
+          ...MOCK_CHANNEL,
+          guardrailsConfig: {
+            preProcessing: {
+              contentFiltering: true,
+              intentClassification: false,
+              maxInputLength: 50000,
+            },
+            postProcessing: { piiRedaction: true, outputValidation: true },
+            defenseProfile: 'balanced',
+            canaryTokenEnabled: true,
+            auditRetentionDays: 14,
+            detection: {
+              heuristicThreshold: 60,
+              similarityThreshold: 0.85,
+              similarityShortCircuitThreshold: 0.92,
+              classifierTimeoutMs: 3000,
+            },
+          },
+        },
+      ];
+      const res = await app.request(
+        jsonReq(`/api/channels/${CHANNEL_ID}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            guardrailsConfig: {
+              preProcessing: {
+                contentFiltering: true,
+                intentClassification: false,
+                maxInputLength: 50000,
+              },
+              postProcessing: { piiRedaction: true, outputValidation: true },
+              defenseProfile: 'balanced',
+              canaryTokenEnabled: true,
+              auditRetentionDays: 14,
+              detection: {
+                heuristicThreshold: 60,
+                similarityThreshold: 0.85,
+                similarityShortCircuitThreshold: 0.92,
+                classifierTimeoutMs: 3000,
+              },
+            },
+          }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.data.guardrailsConfig.defenseProfile).toBe('balanced');
+      expect(body.data.guardrailsConfig.canaryTokenEnabled).toBe(true);
+      expect(body.data.guardrailsConfig.auditRetentionDays).toBe(14);
+      expect(body.data.guardrailsConfig.detection.heuristicThreshold).toBe(60);
+    });
+
+    test('rejects auditRetentionDays below the bound (1) with 400', async () => {
+      const res = await app.request(
+        jsonReq(`/api/channels/${CHANNEL_ID}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            guardrailsConfig: {
+              preProcessing: {
+                contentFiltering: true,
+                intentClassification: false,
+                maxInputLength: 50000,
+              },
+              postProcessing: { piiRedaction: true, outputValidation: true },
+              auditRetentionDays: 0,
+            },
+          }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toBe('VALIDATION_ERROR');
+    });
+
+    test('rejects auditRetentionDays above the bound (90) with 400', async () => {
+      const res = await app.request(
+        jsonReq(`/api/channels/${CHANNEL_ID}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            guardrailsConfig: {
+              preProcessing: {
+                contentFiltering: true,
+                intentClassification: false,
+                maxInputLength: 50000,
+              },
+              postProcessing: { piiRedaction: true, outputValidation: true },
+              auditRetentionDays: 91,
+            },
+          }),
+        }),
+      );
+      expect(res.status).toBe(400);
+    });
+
+    test('rejects invalid defenseProfile values with 400', async () => {
+      const res = await app.request(
+        jsonReq(`/api/channels/${CHANNEL_ID}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            guardrailsConfig: {
+              preProcessing: {
+                contentFiltering: true,
+                intentClassification: false,
+                maxInputLength: 50000,
+              },
+              postProcessing: { piiRedaction: true, outputValidation: true },
+              defenseProfile: 'paranoid', // not in strict|balanced|permissive enum
+            },
+          }),
+        }),
+      );
+      expect(res.status).toBe(400);
+    });
+
+    test('rejects detection.similarityShortCircuitThreshold < similarityThreshold with 400 (cross-field constraint)', async () => {
+      const res = await app.request(
+        jsonReq(`/api/channels/${CHANNEL_ID}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            guardrailsConfig: {
+              preProcessing: {
+                contentFiltering: true,
+                intentClassification: false,
+                maxInputLength: 50000,
+              },
+              postProcessing: { piiRedaction: true, outputValidation: true },
+              detection: {
+                heuristicThreshold: 60,
+                similarityThreshold: 0.92,
+                similarityShortCircuitThreshold: 0.5, // lower than fire threshold
+                classifierTimeoutMs: 3000,
+              },
+            },
+          }),
+        }),
+      );
+      expect(res.status).toBe(400);
+    });
+
+    test('invalidates the channel config cache on a successful write (FR-018)', async () => {
+      mockUpdateRows = [
+        {
+          ...MOCK_CHANNEL,
+          guardrailsConfig: {
+            preProcessing: {
+              contentFiltering: true,
+              intentClassification: false,
+              maxInputLength: 50000,
+            },
+            postProcessing: { piiRedaction: true, outputValidation: true },
+            defenseProfile: 'strict',
+          },
+        },
+      ];
+      expect(invalidateConfigCalls.length).toBe(0);
+      const res = await app.request(
+        jsonReq(`/api/channels/${CHANNEL_ID}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            guardrailsConfig: {
+              preProcessing: {
+                contentFiltering: true,
+                intentClassification: false,
+                maxInputLength: 50000,
+              },
+              postProcessing: { piiRedaction: true, outputValidation: true },
+              defenseProfile: 'strict',
+            },
+          }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(invalidateConfigCalls).toEqual([CHANNEL_ID]);
+    });
+
+    test('does NOT invalidate the config cache on a failed write (404 not found)', async () => {
+      mockUpdateRows = []; // no rows returned → 404
+      const res = await app.request(
+        jsonReq(`/api/channels/${CHANNEL_ID}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            guardrailsConfig: {
+              preProcessing: {
+                contentFiltering: true,
+                intentClassification: false,
+                maxInputLength: 50000,
+              },
+              postProcessing: { piiRedaction: true, outputValidation: true },
+              defenseProfile: 'strict',
+            },
+          }),
+        }),
+      );
+      expect(res.status).toBe(404);
+      expect(invalidateConfigCalls).toEqual([]);
+    });
   });
 });

@@ -53,13 +53,16 @@ export class MessageOrchestrator {
   }
 
   async process(params: OrchestratorParams): Promise<OrchestratorResult> {
-    await this.hooks.emit('message:received', {
+    // Lifecycle notification; non-audit-critical. Explicitly discard the
+    // HookEmitResult per FR-029 — handler failures are already logged by the
+    // engine and must not block message processing.
+    void (await this.hooks.emit('message:received', {
       channelId: params.channelId,
       externalUserId: params.userId,
       threadId: params.threadId,
       eventType: 'message:received',
       payload: { text: params.text },
-    });
+    }));
 
     const engine = await this.getEngine();
     const result = await engine.run({
@@ -95,23 +98,28 @@ export class MessageOrchestrator {
 
     await this.storeFeedbackMetadata(params, result);
 
-    await this.hooks.emit('message:sending', {
+    // Lifecycle notification; non-audit-critical. Discard per FR-029.
+    void (await this.hooks.emit('message:sending', {
       channelId: params.channelId,
       externalUserId: params.userId,
       threadId: params.threadId,
       eventType: 'message:sending',
       payload: { response: result.text },
-    });
+    }));
 
     await params.adapter.sendMessage(params.threadId, result.text);
 
-    await this.hooks.emit('message:sent', {
+    // Lifecycle notification; drives the audit-trail + cost-log builtin
+    // handlers. Per FR-029 / FR-027, the detection audit system writes
+    // directly to the detection_audit_events table rather than relying on
+    // this emission, so discarding the result is safe.
+    void (await this.hooks.emit('message:sent', {
       channelId: params.channelId,
       externalUserId: params.userId,
       threadId: params.threadId,
       eventType: 'message:sent',
       payload: { response: result.text },
-    });
+    }));
 
     return {
       text: result.text,

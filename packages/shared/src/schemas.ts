@@ -30,15 +30,81 @@ export const providerFallbackEntrySchema = z.object({
   model: z.string(),
 });
 
+export const defenseProfileSchema = z.enum(['strict', 'balanced', 'permissive']);
+
+export const detectionTuningSchema = z
+  .object({
+    heuristicThreshold: z.number().min(0).max(100).default(60),
+    similarityThreshold: z.number().min(0).max(1).default(0.85),
+    similarityShortCircuitThreshold: z.number().min(0).max(1).default(0.92),
+    /**
+     * Enables the LLM-based semantic classifier layer. Intentionally NOT
+     * defaulted at the schema level — the effective default is
+     * profile-dependent and applied in `DetectionEngine.detect()`:
+     *
+     *   - `strict`     → default `true`  (LLM backstop for novel attacks)
+     *   - `balanced`   → default `false` (fast path only; closes the SC-002
+     *                    gap on local small-model stacks where gemma4 over-
+     *                    blocks boundary benign samples, and improves
+     *                    SC-003b latency from ~1200 ms p95 to ~50 ms p95)
+     *   - `permissive` → default `false` (fast path only)
+     *
+     * Explicit per-channel config ALWAYS wins: an operator can opt into
+     * the classifier on balanced (if they accept the 9.6 % FP rate on the
+     * committed benign corpus and the ~1200 ms p95 latency), or opt out
+     * on strict (if they accept the weakened novel-attack defense). The
+     * per-profile default is documented in `spec.md` §SC-002 and
+     * `benchmark-results.md` §"Phase 6 decisions — Option 2".
+     */
+    classifierEnabled: z.boolean().optional(),
+    classifierTimeoutMs: z.number().int().positive().default(3000),
+  })
+  .refine((tuning) => tuning.similarityShortCircuitThreshold >= tuning.similarityThreshold, {
+    message:
+      'similarityShortCircuitThreshold must be >= similarityThreshold (short-circuit threshold cannot be stricter than the fire threshold)',
+    path: ['similarityShortCircuitThreshold'],
+  });
+
 export const guardrailsConfigSchema = z.object({
   preProcessing: z.object({
     contentFiltering: z.boolean().default(true),
+    /**
+     * @deprecated Unused by the detection pipeline. Kept in the schema for
+     * one release cycle for backward compatibility per FR-024. The
+     * `GuardrailsEngine` ignores this field at runtime and logs a single
+     * deprecation warning per process the first time a channel config is
+     * loaded with the flag present.
+     */
     intentClassification: z.boolean().default(false),
     maxInputLength: z.number().int().positive().default(10000),
   }),
   postProcessing: z.object({
     piiRedaction: z.boolean().default(false),
     outputValidation: z.boolean().default(true),
+  }),
+  /**
+   * Defense profile for the multi-layer injection detection pipeline.
+   * Optional for backward compat (FR-023) — the `GuardrailsEngine` derives
+   * a profile from `contentFiltering` when this field is absent.
+   */
+  defenseProfile: defenseProfileSchema.optional(),
+  /** Output-side canary token layer toggle (FR-021). */
+  canaryTokenEnabled: z.boolean().default(true),
+  /** Audit event retention window in days (FR-022). */
+  auditRetentionDays: z.number().int().min(1).max(90).default(7),
+  /**
+   * Per-layer tuning knobs for the detection pipeline.
+   *
+   * `classifierEnabled` is intentionally absent from the default object
+   * because its effective default is profile-dependent and applied in
+   * `DetectionEngine.detect()` (strict → true, balanced/permissive →
+   * false). See `detectionTuningSchema.classifierEnabled` for rationale.
+   */
+  detection: detectionTuningSchema.default({
+    heuristicThreshold: 60,
+    similarityThreshold: 0.85,
+    similarityShortCircuitThreshold: 0.92,
+    classifierTimeoutMs: 3000,
   }),
 });
 
