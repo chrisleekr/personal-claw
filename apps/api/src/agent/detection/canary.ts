@@ -78,9 +78,12 @@ export function checkResponseForCanary(responseText: string, canary: CanaryToken
   // Check for the full canary.
   const canaryLower = canary.token.toLowerCase();
   const fullMatch = normalized.includes(canaryLower);
-  // Also check for the prefix — a prefix-only leak is still a security event
-  // because legitimate output should NEVER contain the prefix substring.
-  const prefixMatch = normalized.includes(CANARY_PREFIX.toLowerCase());
+  // Also check for a partial canary — the prefix followed by at least 8 hex
+  // chars. A bare `pc_canary_` without a hex tail is NOT flagged to avoid
+  // false positives when the model discusses the system or a user mentions
+  // the prefix in a question.
+  const CANARY_PARTIAL_REGEX = /pc_canary_[a-f0-9]{8,}/i;
+  const prefixMatch = !fullMatch && CANARY_PARTIAL_REGEX.test(normalized);
 
   const fired = fullMatch || prefixMatch;
   const reasonCode = fullMatch ? 'CANARY_FULL_LEAK' : prefixMatch ? 'CANARY_PREFIX_LEAK' : null;

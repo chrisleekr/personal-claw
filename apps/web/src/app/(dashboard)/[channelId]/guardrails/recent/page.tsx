@@ -36,7 +36,7 @@ const REPEAT_OFFENDER_THRESHOLD = 5;
 /** Rolling window for the offender grouping. */
 const REPEAT_OFFENDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-type DecisionFilter = 'all' | 'block' | 'flag' | 'neutralize' | 'allow';
+type DecisionFilter = 'all' | 'block' | 'flag' | 'allow';
 
 export default function RecentBlocksPage() {
   const params = useParams<{ channelId: string }>();
@@ -183,7 +183,6 @@ export default function RecentBlocksPage() {
                   <SelectItem value="all">All decisions</SelectItem>
                   <SelectItem value="block">Block only</SelectItem>
                   <SelectItem value="flag">Flag only</SelectItem>
-                  <SelectItem value="neutralize">Neutralize only</SelectItem>
                   <SelectItem value="allow">Allow (above-threshold)</SelectItem>
                 </SelectContent>
               </Select>
@@ -238,9 +237,7 @@ export default function RecentBlocksPage() {
                                   ? 'bg-red-500/10 text-red-700 dark:text-red-400'
                                   : event.decision === 'flag'
                                     ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                                    : event.decision === 'neutralize'
-                                      ? 'bg-purple-500/10 text-purple-700 dark:text-purple-400'
-                                      : 'bg-green-500/10 text-green-700 dark:text-green-400'
+                                    : 'bg-green-500/10 text-green-700 dark:text-green-400'
                               }`}
                             >
                               {event.decision}

@@ -9,7 +9,7 @@ import { errorDetails } from '../utils/error-fmt';
  * FR-022 / FR-028 — Retention cleanup for `detection_audit_events`.
  *
  * The detection pipeline persists an audit event for every block, flag,
- * neutralize, and above-threshold allow decision (see `writeAuditEvent()`
+ * and above-threshold allow decision (see `writeAuditEvent()`
  * in `apps/api/src/agent/detection/audit.ts`). Per spec FR-022 these rows
  * have a bounded lifetime governed by each channel's `auditRetentionDays`
  * (default 7, bounded [1, 90]).

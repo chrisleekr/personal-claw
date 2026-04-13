@@ -129,7 +129,7 @@ New tools default to `external_untrusted` until an author explicitly adds an ent
 
 ### Audit trail
 
-Every non-allow decision (block, flag, neutralize) and every allow-with-non-zero-score is persisted to `detection_audit_events` with:
+Every non-allow decision (block, flag) and every allow-with-non-zero-score is persisted to `detection_audit_events` with:
 
 - Reference id (shown to users per FR-004)
 - Decision, risk score, layers fired, reason code

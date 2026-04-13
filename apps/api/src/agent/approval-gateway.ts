@@ -1,5 +1,5 @@
 import { getLogger } from '@logtape/logtape';
-import { approvalPolicies, channels, eq } from '@personalclaw/db';
+import { and, approvalPolicies, channels, detectionOverrides, eq } from '@personalclaw/db';
 import type { ApprovalPolicy, GuardrailsConfig, PlanApprovalState } from '@personalclaw/shared';
 import type { ToolExecutionOptions, ToolSet } from 'ai';
 import { tool } from 'ai';
@@ -9,7 +9,7 @@ import { getDb } from '../db';
 import { HooksEngine } from '../hooks/engine';
 import { writeAuditEvent } from './detection/audit';
 import type { DetectionEngine } from './detection/engine';
-import type { DetectionContext, DetectionDecision } from './detection/types';
+import type { DetectionContext, DetectionDecision, LayerResult } from './detection/types';
 import { getToolTrustCategory, type ToolTrustCategory } from './tool-trust';
 
 const logger = getLogger(['personalclaw', 'agent', 'approval-gateway']);
@@ -61,6 +61,8 @@ export class ApprovalGateway {
   private patternPolicies: PatternPolicyEntry[] = [];
   private pendingBatch: PendingBatchEntry[] = [];
   private batchTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Per-turn cache of `trust_mcp_tool` overrides for this channel. */
+  private trustMcpCache: Map<string, boolean> | null = null;
 
   constructor(
     private channelId: string,
@@ -397,11 +399,36 @@ export class ApprovalGateway {
    * fields of the result remain intact so the tool-call as a whole is not
    * uselessly discarded.
    */
+  /**
+   * Checks whether a tool has a per-channel `trust_mcp_tool` override in
+   * `detection_overrides`. Results are cached per gateway instance (= per
+   * request turn) so the DB is hit at most once per turn.
+   */
+  private async isToolTrustedByOverride(toolName: string): Promise<boolean> {
+    if (!this.trustMcpCache) {
+      const rows = await getDb()
+        .select({ targetKey: detectionOverrides.targetKey })
+        .from(detectionOverrides)
+        .where(
+          and(
+            eq(detectionOverrides.channelId, this.channelId),
+            eq(detectionOverrides.overrideKind, 'trust_mcp_tool'),
+          ),
+        );
+      this.trustMcpCache = new Map(rows.map((r) => [r.targetKey, true]));
+    }
+    return this.trustMcpCache.get(toolName) ?? false;
+  }
+
   private async filterUntrustedResult(toolName: string, result: unknown): Promise<unknown> {
     if (!this.detectionEngine) return result;
 
     const category = getToolTrustCategory(toolName);
     if (category === 'system_generated' || category === 'already_detected') {
+      return result;
+    }
+    // Check channel-level trust override for MCP tools (FR-030).
+    if (await this.isToolTrustedByOverride(toolName)) {
       return result;
     }
 
@@ -565,7 +592,7 @@ class UntrustedResultTraversal {
         return str;
       }
       // Block: audit + replace with neutralizing placeholder.
-      await this.auditToolResultBlock(result.decision, slice);
+      await this.auditToolResultBlock(result.decision, result.layerResults, slice);
       return `[tool output from ${this.toolName} blocked as suspected injection: ref=${result.decision.referenceId}]`;
     } catch (error) {
       this.logger.warn('Tool-output detection failed; returning original (fail-open)', {
@@ -579,12 +606,13 @@ class UntrustedResultTraversal {
 
   private async auditToolResultBlock(
     decision: DetectionDecision,
+    layerResults: readonly LayerResult[],
     rawExcerpt: string,
   ): Promise<void> {
     try {
       await writeAuditEvent({
         decision: { ...decision, sourceKind: 'tool_result' },
-        layerResults: [],
+        layerResults,
         channelId: this.channelId,
         externalUserId: this.externalUserId,
         threadId: this.threadId,

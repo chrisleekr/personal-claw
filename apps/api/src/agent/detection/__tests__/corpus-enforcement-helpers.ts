@@ -18,7 +18,7 @@ import type { DetectionContext } from '../types';
  * had a chance to install its `mock.module()` overrides.
  *
  * Spec anchors:
- * - SC-001: ≥95% adversarial blocked or neutralized at strict profile
+ * - SC-001: ≥95% adversarial blocked at strict profile
  * - SC-002: ≤3% false-positive rate on benign corpus at strict profile
  * - tasks.md T083
  */
@@ -110,10 +110,10 @@ export function buildContext(): DetectionContext {
 
 /**
  * Result of running an entire corpus through `engine.detect()`.
- * `blockedOrNeutralized` counts the strict-profile actions that prevent
- * the content from reaching the LLM (`block`) or rewrite it inside an
- * untrusted marker (`neutralize`). `flag` and `allow` are NOT counted as
- * blocked because they let the original content through to the model.
+ * `blockedOrNeutralized` counts `block` actions that prevent the content
+ * from reaching the LLM. The variable name retains "OrNeutralized" for
+ * alignment with SC-001 spec text. `flag` and `allow` are NOT counted
+ * because they let the original content through to the model.
  */
 export interface CorpusRunResult {
   total: number;
@@ -141,7 +141,7 @@ export async function runAdversarialCorpus(
   for (const sig of corpus.signatures) {
     const result = await engine.detect(sig.text, ctx, config);
     const action = result.decision.action;
-    if (action === 'block' || action === 'neutralize') {
+    if (action === 'block') {
       blockedOrNeutralized++;
     } else {
       missedReferenceIds.push(sig.id);
@@ -180,7 +180,7 @@ export async function runBenignCorpus(
   for (const sample of corpus.samples) {
     const result = await engine.detect(sample.text, ctx, config);
     const action = result.decision.action;
-    if (action === 'block' || action === 'neutralize') {
+    if (action === 'block') {
       falsePositives++;
       missedReferenceIds.push(sample.id);
     }

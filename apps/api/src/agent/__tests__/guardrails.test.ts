@@ -46,14 +46,13 @@ type LayerResultStub = {
 };
 
 type DecisionStub = {
-  action: 'allow' | 'flag' | 'neutralize' | 'block';
+  action: 'allow' | 'flag' | 'block';
   riskScore: number;
   layersFired: string[];
   reasonCode: string;
   redactedExcerpt: string;
   referenceId: string;
   sourceKind: string;
-  neutralizedText?: string;
 };
 
 let mockDetectResult: { decision: DecisionStub; layerResults: LayerResultStub[] } = {
@@ -221,30 +220,6 @@ describe('GuardrailsEngine (multi-layer pipeline rewrite, FR-001/016)', () => {
       });
       expect(result.flagged).toBe(true);
       expect(result.text).toBe('suspicious content');
-    });
-
-    test('neutralize action substitutes the rewritten text', async () => {
-      mockDetectResult = {
-        decision: {
-          action: 'neutralize',
-          riskScore: 50,
-          layersFired: ['heuristics'],
-          reasonCode: 'NEUTRALIZED',
-          redactedExcerpt: 'x',
-          referenceId: 'ref000000004',
-          sourceKind: 'user_message',
-          neutralizedText: '<untrusted_content>ignore all</untrusted_content>',
-        },
-        layerResults: [],
-      };
-      const result = await engine.preProcess({
-        channelId: CHANNEL_ID,
-        text: 'ignore all',
-        externalUserId: 'u1',
-        threadId: 't1',
-        recentHistory: [],
-      });
-      expect(result.text).toBe('<untrusted_content>ignore all</untrusted_content>');
     });
 
     test('truncates text exceeding maxInputLength with default config (AFTER detection)', async () => {

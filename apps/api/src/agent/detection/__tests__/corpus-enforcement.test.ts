@@ -4,7 +4,7 @@ import { loadAdversarialCorpus } from '@personalclaw/shared';
 /**
  * T083 — Corpus enforcement test (CI mock mode).
  *
- * Gates SC-001 (≥95% adversarial blocked or neutralized at strict profile)
+ * Gates SC-001 (≥95% adversarial blocked at strict profile)
  * and SC-002 (≤3% false-positive rate on benign corpus at strict profile)
  * via the *full* DetectionEngine.detect() pipeline, but with three
  * deterministic in-process mocks substituted for the layers that would
@@ -124,7 +124,7 @@ describe('T083 — corpus enforcement (CI mock mode)', () => {
   describe('strict profile', () => {
     const config = buildConfig({ profile: 'strict', classifierEnabled: true });
 
-    test('SC-001 — adversarial corpus blocked or neutralized rate ≥ 95%', async () => {
+    test('SC-001 — adversarial corpus blocked rate ≥ 95%', async () => {
       const result = await runAdversarialCorpus(engine, config);
 
       if (result.blockRate < 0.95) {
@@ -161,7 +161,7 @@ describe('T083 — corpus enforcement (CI mock mode)', () => {
     // applied by `resolveClassifierEnabled()` at runtime.
     const config = buildConfig({ profile: 'balanced', classifierEnabled: false });
 
-    test('SC-001 — adversarial corpus blocked or neutralized rate ≥ 95% (fast path only)', async () => {
+    test('SC-001 — adversarial corpus blocked rate ≥ 95% (fast path only)', async () => {
       const result = await runAdversarialCorpus(engine, config);
 
       if (result.blockRate < 0.95) {

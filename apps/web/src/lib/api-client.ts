@@ -98,7 +98,7 @@ export interface DetectionAuditEvent {
 export interface DetectionAuditRecentQuery {
   limit?: number;
   cursor?: string;
-  decision?: 'allow' | 'flag' | 'neutralize' | 'block';
+  decision?: 'allow' | 'flag' | 'block';
   since?: string;
   until?: string;
 }

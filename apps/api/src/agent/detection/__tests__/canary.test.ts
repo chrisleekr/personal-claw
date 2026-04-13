@@ -67,9 +67,17 @@ describe('checkResponseForCanary (FR-020)', () => {
     expect(result.score).toBe(100);
   });
 
-  test('fires on prefix-only leak (model echoed "pc_canary_" without the tail)', () => {
+  test('does NOT fire on bare prefix without hex tail (avoids false positives)', () => {
     const c = generateCanary();
     const response = 'I noticed a "pc_canary_" reference in my prompt that I should ignore.';
+    const result = checkResponseForCanary(response, c);
+    expect(result.fired).toBe(false);
+    expect(result.reasonCode).toBeNull();
+  });
+
+  test('fires on partial canary with 8+ hex chars after prefix', () => {
+    const c = generateCanary();
+    const response = 'Here is a token: pc_canary_abcdef1234567890 that was leaked.';
     const result = checkResponseForCanary(response, c);
     expect(result.fired).toBe(true);
     expect(result.reasonCode).toBe('CANARY_PREFIX_LEAK');

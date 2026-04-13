@@ -211,7 +211,7 @@ d('T083 — corpus enforcement (live Ollama mode)', () => {
 
   describe('strict profile (full pipeline with gemma4 classifier)', () => {
     test(
-      'SC-001 — adversarial corpus blocked or neutralized rate ≥ 95%',
+      'SC-001 — adversarial corpus blocked rate ≥ 95%',
       async () => {
         const result = await runAdversarialCorpus(engine, strictConfig);
 
@@ -271,7 +271,7 @@ d('T083 — corpus enforcement (live Ollama mode)', () => {
   // -------------------------------------------------------------------
   describe('balanced profile (Phase 6 Option 2: classifier disabled by default)', () => {
     test(
-      'SC-001 — adversarial corpus blocked or neutralized rate ≥ 95% (fast path only)',
+      'SC-001 — adversarial corpus blocked rate ≥ 95% (fast path only)',
       async () => {
         const result = await runAdversarialCorpus(engine, balancedConfig);
 

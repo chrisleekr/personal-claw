@@ -156,9 +156,12 @@ export class DetectionEngine {
     }
 
     // Build the "input to score" — normalized current text plus the history window.
+    // Each history entry MUST be normalized so homoglyphs / zero-width chars
+    // in earlier turns cannot bypass heuristic substring matching (FR-012).
+    const normalizedHistory = context.recentHistory.map((h) => normalize(h).normalized);
     const heuristicInput =
-      context.recentHistory.length > 0
-        ? [...context.recentHistory, normResult.normalized].join('\n')
+      normalizedHistory.length > 0
+        ? [...normalizedHistory, normResult.normalized].join('\n')
         : normResult.normalized;
 
     // Layer (c) — heuristics
@@ -254,8 +257,12 @@ export class DetectionEngine {
     rawText: string,
   ): DetectionResult {
     const firedLayers = layerResults.filter((l) => l.fired);
-    const maxScore = firedLayers.reduce((m, l) => Math.max(m, l.score), 0);
-    const agreementBonus = firedLayers.length >= 2 ? 10 : 0;
+    // Exclude normalize from score composition — it fires on nearly every
+    // input (any uppercase) and would inflate the agreement bonus. It is
+    // still included in `layersFired` for the audit trail.
+    const firedDetectionLayers = firedLayers.filter((l) => l.layerId !== 'normalize');
+    const maxScore = firedDetectionLayers.reduce((m, l) => Math.max(m, l.score), 0);
+    const agreementBonus = firedDetectionLayers.length >= 2 ? 10 : 0;
     const riskScore = Math.min(100, maxScore + agreementBonus);
 
     // Floor for permissive profile per FR-008: unambiguously malicious

@@ -1,6 +1,7 @@
 import { getLogger } from '@logtape/logtape';
 import { and, approvalPolicies, eq, ne } from '@personalclaw/db';
 import { type GuardrailsConfig, guardrailsConfigSchema } from '@personalclaw/shared';
+import { nanoid } from 'nanoid';
 import { getCachedConfig } from '../channels/config-cache';
 import { getDb } from '../db';
 import { errorDetails } from '../utils/error-fmt';
@@ -211,8 +212,8 @@ export class GuardrailsEngine {
    * FR-001 / FR-004: runs the input-side detection pipeline over a user
    * message. On `block`, writes the audit event and throws a
    * `DetectionBlockedError` that `preProcessStage` catches to produce
-   * a user-facing notice. On `neutralize`, returns the rewritten text.
-   * On `allow` / `flag`, returns the text unchanged (with truncation).
+   * a user-facing notice. On `allow` / `flag`, returns the text
+   * unchanged (with truncation).
    */
   async preProcess(params: {
     channelId: string;
@@ -262,10 +263,6 @@ export class GuardrailsEngine {
 
     if (result.decision.action === 'block') {
       throw new DetectionBlockedError(result.decision, result.layerResults);
-    }
-
-    if (result.decision.action === 'neutralize' && result.decision.neutralizedText) {
-      text = result.decision.neutralizedText;
     }
 
     // Truncate to max input length AFTER detection so padding cannot hide an attack.
@@ -326,7 +323,7 @@ export class GuardrailsEngine {
           layersFired: ['canary'],
           reasonCode: canaryResult.reasonCode ?? 'CANARY_LEAK',
           redactedExcerpt: maskPII(response).slice(0, 500),
-          referenceId: `canary_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+          referenceId: `canary_${nanoid(12)}`,
           sourceKind: 'canary_leak',
         };
         try {

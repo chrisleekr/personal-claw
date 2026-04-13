@@ -73,7 +73,7 @@ const MAX_RECENT_LIMIT = 200;
 // concerns rather than durable cross-package types.
 // ---------------------------------------------------------------------------
 
-export const DECISION_KINDS = ['allow', 'flag', 'neutralize', 'block'] as const;
+export const DECISION_KINDS = ['allow', 'flag', 'block'] as const;
 export type AuditDecisionKind = (typeof DECISION_KINDS)[number];
 
 export const ANNOTATION_KINDS = [
@@ -290,7 +290,7 @@ export const detectionAuditRoute = new Hono();
  * Query params:
  *   limit     — 1..200, default 50
  *   cursor    — opaque base64 pagination cursor
- *   decision  — filter by allow|flag|neutralize|block
+ *   decision  — filter by allow|flag|block
  *   since     — ISO8601 lower bound on createdAt (inclusive)
  *   until     — ISO8601 upper bound on createdAt (exclusive)
  */
@@ -335,7 +335,7 @@ detectionAuditRoute.get('/:channelId/detection-audit/recent', async (c) => {
       // Wrapping it in a subquery against `detection_audit_events`
       // indexed on `id` keeps the microsecond precision end-to-end.
       whereClauses.push(
-        sql`(${detectionAuditEvents.createdAt}, ${detectionAuditEvents.id}) < (SELECT created_at, id FROM detection_audit_events WHERE id = ${decoded.id})`,
+        sql`(${detectionAuditEvents.createdAt}, ${detectionAuditEvents.id}) < (SELECT created_at, id FROM detection_audit_events WHERE id = ${decoded.id} AND channel_id = ${channelId})`,
       );
     }
   }
