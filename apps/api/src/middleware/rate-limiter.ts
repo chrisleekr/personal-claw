@@ -13,6 +13,27 @@ export interface RateLimitResult {
   retryAfterSeconds: number;
 }
 
+// Atomic INCR + conditional EXPIRE in a single round-trip. The previous
+// implementation issued INCR and EXPIRE as separate awaits, which could leave
+// an "immortal key" if the process crashed between them or if EXPIRE failed.
+// The script returns `[currentCount, ttlSeconds]` so we don't need a second
+// TTL round-trip.
+const RATE_LIMIT_SCRIPT = `
+local current = redis.call('INCR', KEYS[1])
+local ttl
+if current == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+  ttl = tonumber(ARGV[1])
+else
+  ttl = redis.call('TTL', KEYS[1])
+  if ttl < 0 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+    ttl = tonumber(ARGV[1])
+  end
+end
+return {current, ttl}
+`;
+
 export async function checkRateLimit(
   channelId: string,
   userId: string,
@@ -26,13 +47,13 @@ export async function checkRateLimit(
 
   try {
     const redis = getRedis();
-    const current = await redis.incr(key);
-
-    if (current === 1) {
-      await redis.expire(key, VALKEY_TTL.rateLimitWindow);
-    }
-
-    const ttl = await redis.ttl(key);
+    const result = (await redis.eval(
+      RATE_LIMIT_SCRIPT,
+      1,
+      key,
+      String(VALKEY_TTL.rateLimitWindow),
+    )) as [number, number];
+    const [current, ttl] = result;
     const retryAfter = ttl > 0 ? ttl : VALKEY_TTL.rateLimitWindow;
 
     if (current > limitPerMinute) {
