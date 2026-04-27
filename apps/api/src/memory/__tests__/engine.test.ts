@@ -18,13 +18,16 @@ function chainable(getRows: () => unknown[]): unknown {
   return Object.assign([...getRows()], methods);
 }
 
-mock.module('../../db', () => ({
-  getDb: () => ({
+function buildDbLike() {
+  return {
     select: () => chainable(() => mockSelectRows),
     insert: () => ({
       values: () => {
         mockInsertCalled = true;
-        return { returning: () => [] };
+        return {
+          onConflictDoUpdate: () => ({ returning: () => [] }),
+          returning: () => [],
+        };
       },
     }),
     update: () => ({
@@ -34,6 +37,14 @@ mock.module('../../db', () => ({
       },
     }),
     execute: async () => mockExecuteRows,
+  };
+}
+
+mock.module('../../db', () => ({
+  getDb: () => ({
+    ...buildDbLike(),
+    transaction: async <T>(cb: (tx: ReturnType<typeof buildDbLike>) => Promise<T>): Promise<T> =>
+      cb(buildDbLike()),
   }),
 }));
 

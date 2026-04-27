@@ -6,6 +6,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { channels } from './channels';
@@ -27,5 +28,6 @@ export const conversations = pgTable(
   },
   (table) => [
     index('conversations_channel_thread_idx').on(table.channelId, table.externalThreadId),
+    unique('conversations_channel_thread_unique').on(table.channelId, table.externalThreadId),
   ],
 );

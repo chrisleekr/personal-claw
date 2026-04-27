@@ -34,43 +34,43 @@ export class ConversationMemory {
     ...messages: ConversationMessage[]
   ): Promise<{ tokenCount: number }> {
     const db = getDb();
+    const incomingTokenCount = estimateTokenCount(messages.map((m) => m.content).join(' '));
 
-    const [existing] = await db
-      .select()
-      .from(conversations)
-      .where(
-        and(eq(conversations.channelId, channelId), eq(conversations.externalThreadId, threadId)),
-      );
+    // Atomic upsert: if a row already exists for (channelId, externalThreadId)
+    // the new messages are appended via JSONB concat in SQL, eliminating the
+    // read-modify-write race that previously dropped concurrent writes.
+    // The token_count returned by RETURNING reflects either the just-inserted
+    // row (no merge needed) or the prior count plus the incoming estimate
+    // (sufficient for compaction triggers; a follow-up UPDATE inside the same
+    // transaction recomputes the exact estimate from the merged messages).
+    return db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(conversations)
+        .values({
+          channelId,
+          externalThreadId: threadId,
+          messages: messages as unknown as Record<string, unknown>[],
+          tokenCount: incomingTokenCount,
+        })
+        .onConflictDoUpdate({
+          target: [conversations.channelId, conversations.externalThreadId],
+          set: {
+            messages: sql`${conversations.messages} || ${JSON.stringify(messages)}::jsonb`,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
 
-    if (existing) {
-      const currentMessages = (existing.messages as ConversationMessage[]) ?? [];
-      const updatedMessages = [...currentMessages, ...messages];
-      const allText = updatedMessages.map((m) => m.content).join(' ');
+      const mergedMessages = (row?.messages as ConversationMessage[]) ?? messages;
+      const allText = mergedMessages.map((m) => m.content).join(' ');
       const tokenCount = estimateTokenCount(allText);
 
-      await db
-        .update(conversations)
-        .set({
-          messages: updatedMessages as unknown as Record<string, unknown>[],
-          tokenCount,
-          updatedAt: new Date(),
-        })
-        .where(eq(conversations.id, existing.id));
+      if (row && tokenCount !== row.tokenCount) {
+        await tx.update(conversations).set({ tokenCount }).where(eq(conversations.id, row.id));
+      }
 
       return { tokenCount };
-    }
-
-    const allText = messages.map((m) => m.content).join(' ');
-    const tokenCount = estimateTokenCount(allText);
-
-    await db.insert(conversations).values({
-      channelId,
-      externalThreadId: threadId,
-      messages: messages as unknown as Record<string, unknown>[],
-      tokenCount,
     });
-
-    return { tokenCount };
   }
 
   async compact(channelId: string, threadId: string, summary: string): Promise<void> {
