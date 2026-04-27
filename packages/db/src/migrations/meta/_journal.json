@@ -113,6 +113,20 @@
       "when": 1775737713696,
       "tag": "0015_light_eternity",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1777891200000,
+      "tag": "0016_tool_policy_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1777891260000,
+      "tag": "0017_conversations_unique_thread",
+      "breakpoints": true
     }
   ]
 }

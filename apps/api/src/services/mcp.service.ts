@@ -1,5 +1,5 @@
 import { createMCPClient } from '@ai-sdk/mcp';
-import { and, eq, isNull, mcpConfigs, or, toolPolicies } from '@personalclaw/db';
+import { and, eq, isNull, mcpConfigs, or, sql, toolPolicies } from '@personalclaw/db';
 import type { CreateMCPConfigInput, MCPTransportType } from '@personalclaw/shared';
 import {
   stdioArgsSchema,
@@ -170,21 +170,26 @@ export class MCPService {
 
   async upsertToolPolicy(mcpConfigId: string, channelId: string | null, disabledTools: string[]) {
     const db = getDb();
-    const channelCondition = channelId
-      ? eq(toolPolicies.channelId, channelId)
-      : isNull(toolPolicies.channelId);
 
-    const [existing] = await db
-      .select()
-      .from(toolPolicies)
-      .where(and(eq(toolPolicies.mcpConfigId, mcpConfigId), channelCondition))
-      .limit(1);
-
-    if (existing) {
+    // Two partial unique indexes back this upsert:
+    //   tool_policies_mcp_config_channel_unique  WHERE channel_id IS NOT NULL
+    //   tool_policies_mcp_config_global_unique   WHERE channel_id IS NULL
+    // ON CONFLICT must target the matching predicate so Postgres picks the
+    // right index as the arbiter.
+    if (channelId === null) {
       const [row] = await db
-        .update(toolPolicies)
-        .set({ denyList: disabledTools, allowList: [] })
-        .where(eq(toolPolicies.id, existing.id))
+        .insert(toolPolicies)
+        .values({
+          mcpConfigId,
+          channelId: null,
+          denyList: disabledTools,
+          allowList: [],
+        })
+        .onConflictDoUpdate({
+          target: toolPolicies.mcpConfigId,
+          targetWhere: sql`${toolPolicies.channelId} IS NULL`,
+          set: { denyList: disabledTools, allowList: [] },
+        })
         .returning();
       return row;
     }
@@ -196,6 +201,11 @@ export class MCPService {
         channelId,
         denyList: disabledTools,
         allowList: [],
+      })
+      .onConflictDoUpdate({
+        target: [toolPolicies.mcpConfigId, toolPolicies.channelId],
+        targetWhere: sql`${toolPolicies.channelId} IS NOT NULL`,
+        set: { denyList: disabledTools, allowList: [] },
       })
       .returning();
     return row;
