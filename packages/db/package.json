@@ -24,13 +24,13 @@
     "clean": "rm -rf dist .turbo node_modules"
   },
   "dependencies": {
-    "drizzle-orm": "^0.38.0",
-    "postgres": "^3.4.0",
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.9",
     "@personalclaw/shared": "workspace:*"
   },
   "devDependencies": {
     "dotenv": "^16.4.0",
-    "drizzle-kit": "^0.30.0",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^5.7.0"
   }
 }
