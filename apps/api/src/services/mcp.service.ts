@@ -1,5 +1,5 @@
 import { createMCPClient } from '@ai-sdk/mcp';
-import { and, eq, isNull, mcpConfigs, or, toolPolicies } from '@personalclaw/db';
+import { and, eq, isNull, mcpConfigs, or, sql, toolPolicies } from '@personalclaw/db';
 import type { CreateMCPConfigInput, MCPTransportType } from '@personalclaw/shared';
 import {
   stdioArgsSchema,
@@ -170,32 +170,27 @@ export class MCPService {
 
   async upsertToolPolicy(mcpConfigId: string, channelId: string | null, disabledTools: string[]) {
     const db = getDb();
-    const channelCondition = channelId
-      ? eq(toolPolicies.channelId, channelId)
-      : isNull(toolPolicies.channelId);
 
-    const [existing] = await db
-      .select()
-      .from(toolPolicies)
-      .where(and(eq(toolPolicies.mcpConfigId, mcpConfigId), channelCondition))
-      .limit(1);
-
-    if (existing) {
+    if (channelId === null) {
       const [row] = await db
-        .update(toolPolicies)
-        .set({ denyList: disabledTools, allowList: [] })
-        .where(eq(toolPolicies.id, existing.id))
+        .insert(toolPolicies)
+        .values({ mcpConfigId, channelId: null, denyList: disabledTools, allowList: [] })
+        .onConflictDoUpdate({
+          target: toolPolicies.mcpConfigId,
+          targetWhere: sql`${toolPolicies.channelId} IS NULL`,
+          set: { denyList: disabledTools, allowList: [] },
+        })
         .returning();
       return row;
     }
 
     const [row] = await db
       .insert(toolPolicies)
-      .values({
-        mcpConfigId,
-        channelId,
-        denyList: disabledTools,
-        allowList: [],
+      .values({ mcpConfigId, channelId, denyList: disabledTools, allowList: [] })
+      .onConflictDoUpdate({
+        target: [toolPolicies.mcpConfigId, toolPolicies.channelId],
+        targetWhere: sql`${toolPolicies.channelId} IS NOT NULL`,
+        set: { denyList: disabledTools, allowList: [] },
       })
       .returning();
     return row;
