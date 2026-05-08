@@ -42,13 +42,20 @@ function chainable(getRows: () => unknown[]): unknown {
   return Object.assign([...getRows()], methods);
 }
 
+function insertChain(getRows: () => unknown[]): unknown {
+  const obj: Record<string, unknown> = {
+    returning: () => [...getRows()],
+  };
+  obj.onConflictDoUpdate = () => obj;
+  obj.onConflictDoNothing = () => obj;
+  return obj;
+}
+
 mock.module('../../db', () => ({
   getDb: () => ({
     select: () => chainable(() => mockSelectRows),
     insert: () => ({
-      values: () => ({
-        returning: () => [...mockInsertRows],
-      }),
+      values: () => insertChain(() => mockInsertRows),
     }),
     update: () => ({
       set: () => chainable(() => mockUpdateRows),
@@ -171,17 +178,35 @@ describe('MCPService', () => {
   });
 
   describe('upsertToolPolicy', () => {
-    test('creates new policy when none exists', async () => {
+    test('creates new policy via INSERT ON CONFLICT (channel-scoped)', async () => {
       mockSelectRows = [];
       mockInsertRows = [MOCK_TOOL_POLICY];
       const result = await service.upsertToolPolicy('mcp-001', CHANNEL_ID, ['tool_a']);
       expect(result).toBeDefined();
+      expect(result?.denyList).toEqual(['dangerous_tool']);
     });
 
-    test('updates existing policy', async () => {
-      mockSelectRows = [MOCK_TOOL_POLICY];
-      mockUpdateRows = [{ ...MOCK_TOOL_POLICY, denyList: ['tool_b'] }];
+    test('updates existing policy via INSERT ON CONFLICT (channel-scoped)', async () => {
+      mockSelectRows = [];
+      mockInsertRows = [{ ...MOCK_TOOL_POLICY, denyList: ['tool_b'] }];
       const result = await service.upsertToolPolicy('mcp-001', CHANNEL_ID, ['tool_b']);
+      expect(result).toBeDefined();
+      expect(result?.denyList).toEqual(['tool_b']);
+    });
+
+    test('upserts global policy via INSERT ON CONFLICT (channelId null)', async () => {
+      mockSelectRows = [];
+      mockInsertRows = [{ ...MOCK_TOOL_POLICY, channelId: null, denyList: ['tool_c'] }];
+      const result = await service.upsertToolPolicy('mcp-001', null, ['tool_c']);
+      expect(result).toBeDefined();
+      expect(result?.channelId).toBeNull();
+      expect(result?.denyList).toEqual(['tool_c']);
+    });
+
+    test('does not call select before upsert (atomic path)', async () => {
+      mockSelectRows = [{ id: 'should-not-be-read' }];
+      mockInsertRows = [MOCK_TOOL_POLICY];
+      const result = await service.upsertToolPolicy('mcp-001', CHANNEL_ID, ['tool_a']);
       expect(result).toBeDefined();
     });
   });
