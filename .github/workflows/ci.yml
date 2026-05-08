@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches-ignore: ['v*']
+    branches-ignore: ["v*"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 env:
-  BUN_VERSION: '1.3.9'
+  BUN_VERSION: "1.3.9"
 
 jobs:
   quality:
@@ -72,23 +72,24 @@ jobs:
       - name: Run tests
         run: bun run test
         env:
-          DATABASE_URL: 'postgresql://claw:claw_dev@localhost:5432/personalclaw_test'
-          REDIS_URL: 'redis://localhost:6379'
+          DATABASE_URL: "postgresql://claw:claw_dev@localhost:5432/personalclaw_test"
+          REDIS_URL: "redis://localhost:6379"
 
       - name: Build all packages
         run: bun run build
         env:
-          DATABASE_URL: 'postgresql://claw:claw_dev@localhost:5432/personalclaw_test'
+          DATABASE_URL: "postgresql://claw:claw_dev@localhost:5432/personalclaw_test"
 
-  release:
-    name: Semantic Release
-    needs: [quality]
-    if: github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/semantic-release.yml
-    with:
-      is-dev-release: false
-      skip-checks: true
-    secrets: inherit
+  # Disable auto releases for now
+  # release:
+  #   name: Semantic Release
+  #   needs: [quality]
+  #   if: github.ref == 'refs/heads/main'
+  #   uses: ./.github/workflows/semantic-release.yml
+  #   with:
+  #     is-dev-release: false
+  #     skip-checks: true
+  #   secrets: inherit
 
   dev-release:
     name: Semantic Release - Dev

@@ -24,17 +24,8 @@ mcpRoute.post('/', async (c) => {
   return c.json({ data: row }, 201);
 });
 
-mcpRoute.put('/:id', async (c) => {
-  const input = updateMCPConfigSchema.parse(await c.req.json());
-  const row = await mcpService.update(c.req.param('id'), input);
-  return c.json({ data: row });
-});
-
-mcpRoute.delete('/:id', async (c) => {
-  await mcpService.delete(c.req.param('id'));
-  return c.json({ data: { deleted: true } });
-});
-
+// Specific /:id/* routes must be defined before generic /:channelId/:id
+// to avoid Hono matching them as channelId/id pairs.
 mcpRoute.post('/:id/test', async (c) => {
   try {
     const result = await mcpService.testConnection(c.req.param('id'));
@@ -75,5 +66,16 @@ mcpRoute.delete('/:id/tool-policy', async (c) => {
     throw new ValidationError('channelId query param required for reset');
   }
   await mcpService.deleteToolPolicy(c.req.param('id'), channelId);
+  return c.json({ data: { deleted: true } });
+});
+
+mcpRoute.put('/:channelId/:id', async (c) => {
+  const input = updateMCPConfigSchema.parse(await c.req.json());
+  const row = await mcpService.updateScoped(c.req.param('channelId'), c.req.param('id'), input);
+  return c.json({ data: row });
+});
+
+mcpRoute.delete('/:channelId/:id', async (c) => {
+  await mcpService.deleteScoped(c.req.param('channelId'), c.req.param('id'));
   return c.json({ data: { deleted: true } });
 });

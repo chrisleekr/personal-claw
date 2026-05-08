@@ -122,6 +122,29 @@ describe('ProviderRegistry', () => {
     });
     expect(registry.listConfigured()).toEqual(['configured']);
   });
+
+  test('isConfigured(name) returns the factory isConfigured() result', () => {
+    const registry = new ProviderRegistry();
+    registry.register({
+      name: 'configured',
+      defaultModel: 'm',
+      create: () => ({}) as LanguageModel,
+      isConfigured: () => true,
+    });
+    registry.register({
+      name: 'unconfigured',
+      defaultModel: 'm',
+      create: () => ({}) as LanguageModel,
+      isConfigured: () => false,
+    });
+    expect(registry.isConfigured('configured')).toBe(true);
+    expect(registry.isConfigured('unconfigured')).toBe(false);
+  });
+
+  test('isConfigured(name) returns false for unregistered provider', () => {
+    const registry = new ProviderRegistry();
+    expect(registry.isConfigured('never-registered')).toBe(false);
+  });
 });
 
 describe('getProviderRegistry', () => {

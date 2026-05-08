@@ -7,6 +7,13 @@ const THREAD_ID = 'thread-001';
 let mockSelectRows: unknown[] = [];
 let mockInsertCalled = false;
 let mockUpdateCalled = false;
+let mockOnConflictCalled = false;
+let mockTransactionCalled = false;
+let mockSelectCalled = false;
+let mockReturningRow: { messages: ConversationMessage[]; xmax?: string } = {
+  messages: [],
+  xmax: '0',
+};
 
 function chainable(getRows: () => unknown[]): unknown {
   const methods: Record<string, unknown> = {};
@@ -16,13 +23,23 @@ function chainable(getRows: () => unknown[]): unknown {
   return Object.assign([...getRows()], methods);
 }
 
-mock.module('../../db', () => ({
-  getDb: () => ({
-    select: () => chainable(() => mockSelectRows),
+function buildTxLike(): unknown {
+  return {
+    select: () => {
+      mockSelectCalled = true;
+      return chainable(() => mockSelectRows);
+    },
     insert: () => ({
       values: () => {
         mockInsertCalled = true;
-        return { returning: () => [] };
+        const obj: Record<string, unknown> = {
+          returning: () => [mockReturningRow],
+          onConflictDoUpdate: () => {
+            mockOnConflictCalled = true;
+            return obj;
+          },
+        };
+        return obj;
       },
     }),
     update: () => ({
@@ -31,6 +48,38 @@ mock.module('../../db', () => ({
         return chainable(() => []);
       },
     }),
+  };
+}
+
+mock.module('../../db', () => ({
+  getDb: () => ({
+    select: () => {
+      mockSelectCalled = true;
+      return chainable(() => mockSelectRows);
+    },
+    insert: () => ({
+      values: () => {
+        mockInsertCalled = true;
+        const obj: Record<string, unknown> = {
+          returning: () => [mockReturningRow],
+          onConflictDoUpdate: () => {
+            mockOnConflictCalled = true;
+            return obj;
+          },
+        };
+        return obj;
+      },
+    }),
+    update: () => ({
+      set: () => {
+        mockUpdateCalled = true;
+        return chainable(() => []);
+      },
+    }),
+    transaction: async <T>(cb: (tx: unknown) => Promise<T>): Promise<T> => {
+      mockTransactionCalled = true;
+      return cb(buildTxLike());
+    },
   }),
 }));
 
@@ -44,12 +93,20 @@ describe('ConversationMemory', () => {
     mockSelectRows = [];
     mockInsertCalled = false;
     mockUpdateCalled = false;
+    mockOnConflictCalled = false;
+    mockTransactionCalled = false;
+    mockSelectCalled = false;
+    mockReturningRow = { messages: [], xmax: '0' };
   });
 
   afterEach(() => {
     mockSelectRows = [];
     mockInsertCalled = false;
     mockUpdateCalled = false;
+    mockOnConflictCalled = false;
+    mockTransactionCalled = false;
+    mockSelectCalled = false;
+    mockReturningRow = { messages: [], xmax: '0' };
   });
 
   describe('getHistory', () => {
@@ -98,45 +155,79 @@ describe('ConversationMemory', () => {
   });
 
   describe('append', () => {
-    test('creates new conversation when none exists', async () => {
-      mockSelectRows = [];
+    test('runs in a transaction with INSERT ... ON CONFLICT', async () => {
       const msg: ConversationMessage = {
         role: 'user',
         content: 'Hello',
         timestamp: '2026-01-01T00:00:00Z',
       };
+      mockReturningRow = { messages: [msg], xmax: '0' };
       const result = await memory.append(CHANNEL_ID, THREAD_ID, msg);
       expect(result.tokenCount).toBeGreaterThan(0);
+      expect(mockTransactionCalled).toBe(true);
       expect(mockInsertCalled).toBe(true);
+      expect(mockOnConflictCalled).toBe(true);
     });
 
-    test('appends to existing conversation', async () => {
-      mockSelectRows = [
-        {
-          id: 'conv-1',
-          channelId: CHANNEL_ID,
-          externalThreadId: THREAD_ID,
-          messages: [{ role: 'user', content: 'Hello' }],
-          isCompacted: false,
-          summary: null,
-        },
-      ];
+    test('does NOT call select before inserting (no read-modify-write)', async () => {
+      mockSelectRows = [{ id: 'should-not-be-read' }];
       const msg: ConversationMessage = {
+        role: 'user',
+        content: 'Hello',
+        timestamp: '2026-01-01T00:00:00Z',
+      };
+      mockReturningRow = { messages: [msg], xmax: '0' };
+      await memory.append(CHANNEL_ID, THREAD_ID, msg);
+      // Insert was the first DB action; no read-modify-write select happened
+      // before it (the prior implementation always selected first).
+      expect(mockInsertCalled).toBe(true);
+      expect(mockOnConflictCalled).toBe(true);
+      // Guards against regressing back to read-modify-write — `mockSelectCalled`
+      // is set by both the top-level `getDb().select` and the in-tx `select`.
+      expect(mockSelectCalled).toBe(false);
+    });
+
+    test('recomputes token count from the merged messages returned by ON CONFLICT', async () => {
+      const newMsg: ConversationMessage = {
         role: 'assistant',
         content: 'Hi there!',
         timestamp: '2026-01-01T00:00:01Z',
       };
-      const result = await memory.append(CHANNEL_ID, THREAD_ID, msg);
-      expect(result.tokenCount).toBeGreaterThan(0);
+      // Simulate the merged JSONB result returned by Postgres after the
+      // server-side concat: an existing message plus our new one. xmax is
+      // non-zero on the conflict-update path, which gates the recompute.
+      mockReturningRow = {
+        messages: [{ role: 'user', content: 'Hello', timestamp: '2026-01-01T00:00:00Z' }, newMsg],
+        xmax: '12345',
+      };
+      const result = await memory.append(CHANNEL_ID, THREAD_ID, newMsg);
+      // Token count should be > the count of just the new message alone
+      // because it's recomputed from the merged returned messages.
+      const newMsgOnlyTokenCount = Math.ceil(newMsg.content.length / 4);
+      expect(result.tokenCount).toBeGreaterThan(newMsgOnlyTokenCount);
       expect(mockUpdateCalled).toBe(true);
     });
 
+    test('skips redundant token_count UPDATE on the no-conflict insert path', async () => {
+      const msg: ConversationMessage = {
+        role: 'user',
+        content: 'Fresh thread.',
+        timestamp: '2026-01-01T00:00:00Z',
+      };
+      // xmax = '0' means INSERT actually inserted (no conflict): the VALUES
+      // clause already wrote tokenCount, so the follow-up UPDATE must NOT run.
+      mockReturningRow = { messages: [msg], xmax: '0' };
+      const result = await memory.append(CHANNEL_ID, THREAD_ID, msg);
+      expect(result.tokenCount).toBe(Math.ceil(msg.content.length / 4));
+      expect(mockUpdateCalled).toBe(false);
+    });
+
     test('handles multiple messages in a single append', async () => {
-      mockSelectRows = [];
       const msgs: ConversationMessage[] = [
         { role: 'user', content: 'What is 2+2?', timestamp: '2026-01-01T00:00:00Z' },
         { role: 'assistant', content: 'It is 4.', timestamp: '2026-01-01T00:00:01Z' },
       ];
+      mockReturningRow = { messages: msgs, xmax: '0' };
       const result = await memory.append(CHANNEL_ID, THREAD_ID, ...msgs);
       expect(result.tokenCount).toBeGreaterThan(0);
     });

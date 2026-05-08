@@ -31,6 +31,17 @@ export class ProviderRegistry {
     return this.factories.has(name);
   }
 
+  /**
+   * Returns `true` only when the named factory is both registered AND its
+   * `isConfigured()` method returns `true`. Use this in preference to
+   * `has()` at fallback decision points — a registered but unconfigured
+   * factory (e.g., an OAuth token in `ANTHROPIC_API_KEY`) will otherwise
+   * be picked up by `has()` and then error at request time.
+   */
+  isConfigured(name: string): boolean {
+    return this.factories.get(name)?.isConfigured() ?? false;
+  }
+
   list(): string[] {
     return [...this.factories.keys()];
   }

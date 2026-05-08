@@ -1,6 +1,6 @@
 'use client';
 
-import type { ChannelConfig } from '@personalclaw/shared';
+import type { ChannelConfig, UpdateChannelInput } from '@personalclaw/shared';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -40,6 +40,15 @@ export default function SettingsPage() {
   const [costBudgetDailyUsd, setCostBudgetDailyUsd] = useState('');
   const [promptInjectMode, setPromptInjectMode] = useState('every-turn');
 
+  // FR-007 / FR-021 / FR-022 — detection pipeline per-channel tuning (T070).
+  // `defenseProfile` derives to strict/balanced/permissive at load time; an
+  // explicit value here overrides the derivation.
+  const [defenseProfile, setDefenseProfile] = useState<
+    'auto' | 'strict' | 'balanced' | 'permissive'
+  >('auto');
+  const [canaryTokenEnabled, setCanaryTokenEnabled] = useState(true);
+  const [auditRetentionDays, setAuditRetentionDays] = useState(7);
+
   const fetchChannel = useCallback(async () => {
     try {
       setLoading(true);
@@ -56,6 +65,20 @@ export default function SettingsPage() {
       setBrowserEnabled(c.browserEnabled);
       setCostBudgetDailyUsd(c.costBudgetDailyUsd != null ? String(c.costBudgetDailyUsd) : '');
       setPromptInjectMode(c.promptInjectMode);
+      // Detection pipeline fields (T070). When defenseProfile is absent on
+      // the stored row the backend derives it at detect-time; the UI uses
+      // an 'auto' sentinel to let the user opt back into that derivation.
+      const g = c.guardrailsConfig as
+        | {
+            defenseProfile?: 'strict' | 'balanced' | 'permissive';
+            canaryTokenEnabled?: boolean;
+            auditRetentionDays?: number;
+          }
+        | null
+        | undefined;
+      setDefenseProfile(g?.defenseProfile ?? 'auto');
+      setCanaryTokenEnabled(g?.canaryTokenEnabled ?? true);
+      setAuditRetentionDays(g?.auditRetentionDays ?? 7);
     } catch {
       setMessage({ type: 'error', text: 'Failed to load channel settings.' });
     } finally {
@@ -76,6 +99,42 @@ export default function SettingsPage() {
     setMessage(null);
     try {
       const budget = costBudgetDailyUsd.trim();
+
+      // Build the guardrailsConfig patch. We merge on top of the existing
+      // stored config (if any) so per-layer detection tuning knobs
+      // persisted by other flows are preserved — only the fields this UI
+      // owns (defenseProfile, canaryTokenEnabled, auditRetentionDays) are
+      // modified. The `preProcessing` / `postProcessing` sub-objects are
+      // required by the zod schema, so we carry them forward from the
+      // existing config or use sensible defaults.
+      const existingGuardrails = (channel?.guardrailsConfig ?? {}) as Record<string, unknown>;
+      const existingPre = (existingGuardrails.preProcessing ?? {}) as Record<string, unknown>;
+      const existingPost = (existingGuardrails.postProcessing ?? {}) as Record<string, unknown>;
+
+      const guardrailsConfig: Record<string, unknown> = {
+        ...existingGuardrails,
+        preProcessing: {
+          contentFiltering: existingPre.contentFiltering ?? true,
+          intentClassification: existingPre.intentClassification ?? false,
+          maxInputLength: existingPre.maxInputLength ?? 10000,
+        },
+        postProcessing: {
+          piiRedaction: existingPost.piiRedaction ?? false,
+          outputValidation: existingPost.outputValidation ?? true,
+        },
+        canaryTokenEnabled,
+        auditRetentionDays,
+      };
+      // 'auto' means "let the backend derive the profile from
+      // contentFiltering + approval_policies per FR-023" — we achieve that
+      // by OMITTING defenseProfile from the patch (the backend will see the
+      // absence and derive on load). Any explicit selection overrides.
+      if (defenseProfile === 'auto') {
+        delete guardrailsConfig.defenseProfile;
+      } else {
+        guardrailsConfig.defenseProfile = defenseProfile;
+      }
+
       await api.channels.update(params.channelId, {
         model,
         provider,
@@ -87,6 +146,7 @@ export default function SettingsPage() {
         browserEnabled,
         costBudgetDailyUsd: budget ? Number(budget) : null,
         promptInjectMode: promptInjectMode as 'every-turn' | 'once' | 'minimal',
+        guardrailsConfig: guardrailsConfig as UpdateChannelInput['guardrailsConfig'],
       });
       setMessage({ type: 'success', text: 'Settings saved successfully.' });
     } catch {
@@ -256,6 +316,90 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Detection Pipeline</CardTitle>
+          <CardDescription>
+            Tune the multi-layer prompt-injection defense pipeline for this channel. See{' '}
+            <a
+              href={`/${params.channelId}/guardrails/overrides`}
+              className="underline underline-offset-2"
+            >
+              per-channel overrides
+            </a>{' '}
+            for allowlists, block phrases, and MCP tool trust entries. View the{' '}
+            <a
+              href={`/${params.channelId}/guardrails/recent`}
+              className="underline underline-offset-2"
+            >
+              recent detection events
+            </a>{' '}
+            to triage blocks and false positives.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="defense-profile">Defense Profile</Label>
+            <Select
+              value={defenseProfile}
+              onValueChange={(v) => setDefenseProfile(v as typeof defenseProfile)}
+            >
+              <SelectTrigger id="defense-profile">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">
+                  Auto (derived from content filtering + approval policies)
+                </SelectItem>
+                <SelectItem value="strict">Strict — fail-closed on layer errors</SelectItem>
+                <SelectItem value="balanced">
+                  Balanced — fail-open, classifier disabled by default
+                </SelectItem>
+                <SelectItem value="permissive">
+                  Permissive — fail-open, classifier disabled by default
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Strict keeps the LLM classifier enabled for novel-attack defense (best for channels
+              with destructive tools). Balanced and permissive disable the classifier by default to
+              reduce latency and false positives on local small-model stacks.
+            </p>
+          </div>
+
+          <Separator />
+
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Canary Token Detection</Label>
+              <p className="text-xs text-muted-foreground">
+                Inject a per-request canary into the LLM system prompt and block responses that leak
+                it. Disabling does not affect input-side detection layers.
+              </p>
+            </div>
+            <Switch checked={canaryTokenEnabled} onCheckedChange={setCanaryTokenEnabled} />
+          </div>
+
+          <Separator />
+
+          <div className="space-y-2 max-w-xs">
+            <Label htmlFor="audit-retention">Audit Retention (days)</Label>
+            <Input
+              id="audit-retention"
+              type="number"
+              min={1}
+              max={90}
+              value={auditRetentionDays}
+              onChange={(e) => setAuditRetentionDays(Number(e.target.value))}
+            />
+            <p className="text-xs text-muted-foreground">
+              Detection audit events older than this many days are hard-deleted by the retention
+              cron. Range: 1 to 90 days (default 7).
+            </p>
+          </div>
         </CardContent>
       </Card>
 

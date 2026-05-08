@@ -47,4 +47,20 @@ export class SkillService {
     if (!row) throw new NotFoundError('Skill', id);
     emitConfigChange(row.channelId, 'skills');
   }
+
+  async updateScoped(channelId: string, id: string, input: UpdateSkillInput) {
+    const db = getDb();
+    const [existing] = await db.select().from(skills).where(eq(skills.id, id));
+    if (!existing) throw new NotFoundError('Skill', id);
+    if (existing.channelId !== channelId) throw new NotFoundError('Skill', id);
+    return this.update(id, input);
+  }
+
+  async deleteScoped(channelId: string, id: string) {
+    const db = getDb();
+    const [existing] = await db.select().from(skills).where(eq(skills.id, id));
+    if (!existing) throw new NotFoundError('Skill', id);
+    if (existing.channelId !== channelId) throw new NotFoundError('Skill', id);
+    return this.delete(id);
+  }
 }

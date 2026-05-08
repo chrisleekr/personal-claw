@@ -18,13 +18,17 @@ schedulesRoute.post('/', async (c) => {
   return c.json({ data: row }, 201);
 });
 
-schedulesRoute.put('/:id', async (c) => {
+schedulesRoute.put('/:channelId/:id', async (c) => {
   const input = updateScheduleSchema.parse(await c.req.json());
-  const row = await scheduleService.update(c.req.param('id'), input);
+  const row = await scheduleService.updateScoped(
+    c.req.param('channelId'),
+    c.req.param('id'),
+    input,
+  );
   return c.json({ data: row });
 });
 
-schedulesRoute.delete('/:id', async (c) => {
-  await scheduleService.delete(c.req.param('id'));
+schedulesRoute.delete('/:channelId/:id', async (c) => {
+  await scheduleService.deleteScoped(c.req.param('channelId'), c.req.param('id'));
   return c.json({ data: { deleted: true } });
 });

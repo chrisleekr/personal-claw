@@ -18,7 +18,7 @@ mock.module('../pipeline', () => ({
   assembleContextStage: () => mockStages.assembleContext,
   loadToolsStage: () => mockStages.loadTools,
   createSandboxStage: () => mockStages.createSandbox,
-  wrapApprovalStage: (ctx: unknown) => Promise.resolve(ctx),
+  wrapApprovalStage: () => (ctx: unknown) => Promise.resolve(ctx),
   composePromptStage: () => mockStages.composePrompt,
   generateStage: (ctx: Record<string, unknown>) =>
     Promise.resolve({
@@ -56,6 +56,7 @@ mock.module('../../memory/engine', () => ({
   MemoryEngine: class {
     persistConversation = mockPersistConversation;
     persistUserMessage = mockPersistUserMessage;
+    setDetectionEngine() {}
   },
 }));
 
@@ -69,7 +70,24 @@ mock.module('../../sandbox/manager', () => ({
 }));
 
 mock.module('../guardrails', () => ({
-  GuardrailsEngine: class {},
+  GuardrailsEngine: class {
+    getDetectionEngine() {
+      return {
+        detect: async () => ({
+          decision: {
+            action: 'allow',
+            riskScore: 0,
+            layersFired: [],
+            reasonCode: 'NO_MATCH',
+            redactedExcerpt: '',
+            referenceId: 'stub-ref',
+            sourceKind: 'user_message',
+          },
+          layerResults: [],
+        }),
+      };
+    }
+  },
 }));
 
 mock.module('../prompt-composer', () => ({

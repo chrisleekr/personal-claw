@@ -25,7 +25,7 @@ export class ConversationMemory {
       ];
     }
 
-    return (row.messages as ConversationMessage[]) ?? [];
+    return row.messages ?? [];
   }
 
   async append(
@@ -34,43 +34,58 @@ export class ConversationMemory {
     ...messages: ConversationMessage[]
   ): Promise<{ tokenCount: number }> {
     const db = getDb();
+    const initialText = messages.map((m) => m.content).join(' ');
+    const initialTokenCount = estimateTokenCount(initialText);
 
-    const [existing] = await db
-      .select()
-      .from(conversations)
-      .where(
-        and(eq(conversations.channelId, channelId), eq(conversations.externalThreadId, threadId)),
-      );
+    return await db.transaction(async (tx) => {
+      // Atomic INSERT … ON CONFLICT DO UPDATE: when a row already exists for
+      // (channel_id, external_thread_id), Postgres concatenates the existing
+      // messages with the new ones in a single statement under a row-level
+      // lock, eliminating the read-modify-write race. `xmax` in RETURNING
+      // distinguishes the no-conflict insert path (xmax = '0') from the
+      // update path so we can skip the redundant token_count rewrite when
+      // the VALUES clause already wrote the correct count.
+      const [row] = await tx
+        .insert(conversations)
+        .values({
+          channelId,
+          externalThreadId: threadId,
+          messages,
+          tokenCount: initialTokenCount,
+        })
+        .onConflictDoUpdate({
+          target: [conversations.channelId, conversations.externalThreadId],
+          set: {
+            messages: sql`${conversations.messages} || EXCLUDED.messages`,
+            updatedAt: new Date(),
+          },
+        })
+        .returning({
+          messages: conversations.messages,
+          xmax: sql<string>`xmax::text`,
+        });
 
-    if (existing) {
-      const currentMessages = (existing.messages as ConversationMessage[]) ?? [];
-      const updatedMessages = [...currentMessages, ...messages];
-      const allText = updatedMessages.map((m) => m.content).join(' ');
+      const mergedMessages = row?.messages ?? [];
+      const isInsertPath = row?.xmax === '0';
+      if (isInsertPath) {
+        return { tokenCount: initialTokenCount };
+      }
+
+      const allText = mergedMessages.map((m) => m.content).join(' ');
       const tokenCount = estimateTokenCount(allText);
 
-      await db
+      // Conflict path: recompute token_count from the merged messages so
+      // concurrent appends don't leave it referring to only one writer's
+      // contribution.
+      await tx
         .update(conversations)
-        .set({
-          messages: updatedMessages as unknown as Record<string, unknown>[],
-          tokenCount,
-          updatedAt: new Date(),
-        })
-        .where(eq(conversations.id, existing.id));
+        .set({ tokenCount })
+        .where(
+          and(eq(conversations.channelId, channelId), eq(conversations.externalThreadId, threadId)),
+        );
 
       return { tokenCount };
-    }
-
-    const allText = messages.map((m) => m.content).join(' ');
-    const tokenCount = estimateTokenCount(allText);
-
-    await db.insert(conversations).values({
-      channelId,
-      externalThreadId: threadId,
-      messages: messages as unknown as Record<string, unknown>[],
-      tokenCount,
     });
-
-    return { tokenCount };
   }
 
   async compact(channelId: string, threadId: string, summary: string): Promise<void> {

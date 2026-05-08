@@ -17,13 +17,13 @@ memoriesRoute.get('/:channelId/search', async (c) => {
   return c.json({ data: rows });
 });
 
-memoriesRoute.patch('/:id', async (c) => {
+memoriesRoute.patch('/:channelId/:id', async (c) => {
   const input = updateMemorySchema.parse(await c.req.json());
-  const row = await memoryService.update(c.req.param('id'), input);
+  const row = await memoryService.updateScoped(c.req.param('channelId'), c.req.param('id'), input);
   return c.json({ data: row });
 });
 
-memoriesRoute.delete('/:id', async (c) => {
-  await memoryService.delete(c.req.param('id'));
+memoriesRoute.delete('/:channelId/:id', async (c) => {
+  await memoryService.deleteScoped(c.req.param('channelId'), c.req.param('id'));
   return c.json({ data: { deleted: true } });
 });

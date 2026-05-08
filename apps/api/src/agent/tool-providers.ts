@@ -40,7 +40,10 @@ export class CLIToolProvider implements ToolProvider {
   }
 
   getSafeToolNames(): string[] {
-    return ['aws_cli', 'github_cli', 'curl_fetch'];
+    // CLI tools removed from safe list per issue #8 / Constitution VI.
+    // These tools can be destructive (delete AWS resources, push to repos, arbitrary HTTP).
+    // Channel admins can set 'auto' policy per tool via the approvals API.
+    return [];
   }
 }
 

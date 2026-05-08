@@ -4,6 +4,8 @@ import { onConfigChange } from '../config/hot-reload';
 import { MCPManager } from '../mcp/manager';
 import { MemoryEngine } from '../memory/engine';
 import { SandboxManager } from '../sandbox/manager';
+import { CostTracker } from './cost-tracker';
+import { createDetectionEngine } from './detection/engine';
 import { GuardrailsEngine } from './guardrails';
 import type { AgentRunParams, AgentRunResult, PipelineContext, PipelineStage } from './pipeline';
 import {
@@ -68,10 +70,16 @@ async function createDefaultDeps(): Promise<AgentDeps> {
     }
   });
 
+  const costTracker = new CostTracker();
+  const memoryEngine = new MemoryEngine();
+  // FR-025: inject a detection engine into the memory engine so recalled
+  // memories are routed through the pipeline before being added to the
+  // system prompt. The engine uses the same cost tracker as guardrails.
+  memoryEngine.setDetectionEngine(createDetectionEngine(costTracker));
   return {
-    guardrails: new GuardrailsEngine(),
+    guardrails: new GuardrailsEngine(costTracker),
     promptComposer: new PromptComposer(),
-    memoryEngine: new MemoryEngine(),
+    memoryEngine,
     toolRegistry,
     sandboxManager,
     mcpManager,
@@ -110,12 +118,12 @@ export class AgentEngine {
     this.memoryEngine = deps.memoryEngine;
     this.sandboxManager = deps.sandboxManager;
     this.stages = [
-      preProcessStage(deps.guardrails),
+      preProcessStage(deps.guardrails, deps.memoryEngine),
       assembleContextStage(deps.memoryEngine),
       loadToolsStage(deps.toolRegistry),
       createSandboxStage(deps.sandboxManager),
-      wrapApprovalStage,
-      composePromptStage(deps.promptComposer),
+      wrapApprovalStage(deps.guardrails.getDetectionEngine()),
+      composePromptStage(deps.promptComposer, deps.guardrails),
       generateStage,
       postProcessStage(deps.guardrails),
       persistStage(deps.memoryEngine),

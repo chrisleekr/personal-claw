@@ -44,7 +44,20 @@ export const SLASH_COMMANDS = [
   'memory',
   'compact',
   'config',
+  'admin',
 ] as const;
+
+/** Commands any channel member can execute. */
+export const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
+  'help',
+  'status',
+  'skills',
+  'memory',
+  'config',
+]);
+
+/** Commands restricted to channel admins. */
+export const ADMIN_COMMANDS: ReadonlySet<string> = new Set(['model', 'compact']);
 
 export const MODEL_PRICING: Record<
   string,

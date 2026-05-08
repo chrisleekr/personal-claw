@@ -13,6 +13,19 @@ export interface RateLimitResult {
   retryAfterSeconds: number;
 }
 
+// Coerce Redis return values (numbers, bulk strings, bigints) to a finite
+// JS number; anything unparseable falls back to 0 so `remaining` and TTL
+// math never produce NaN.
+function toNumber(value: unknown): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'string') {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+  if (typeof value === 'bigint') return Number(value);
+  return 0;
+}
+
 export async function checkRateLimit(
   channelId: string,
   userId: string,
@@ -26,13 +39,18 @@ export async function checkRateLimit(
 
   try {
     const redis = getRedis();
-    const current = await redis.incr(key);
+    // Custom command registered in `redis.ts` via `defineCommand` — first
+    // call ships the Lua body, subsequent calls go over EVALSHA. Atomic
+    // INCR + EXPIRE eliminates the immortal-key bug where a crash between
+    // separate INCR/EXPIRE calls leaves a counter with no TTL; the script
+    // also re-applies the TTL if a key has none, self-healing legacy keys.
+    const result = (await redis.rateLimitIncr(key, String(VALKEY_TTL.rateLimitWindow))) as [
+      unknown,
+      unknown,
+    ];
 
-    if (current === 1) {
-      await redis.expire(key, VALKEY_TTL.rateLimitWindow);
-    }
-
-    const ttl = await redis.ttl(key);
+    const current = toNumber(result?.[0]);
+    const ttl = toNumber(result?.[1]);
     const retryAfter = ttl > 0 ? ttl : VALKEY_TTL.rateLimitWindow;
 
     if (current > limitPerMinute) {

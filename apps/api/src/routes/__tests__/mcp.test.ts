@@ -134,10 +134,11 @@ describe('MCP Routes', () => {
     expect(body.error).toBe('VALIDATION_ERROR');
   });
 
-  test('PUT /:id updates config', async () => {
+  test('PUT /:channelId/:id updates config', async () => {
+    mockRows = [MOCK_MCP];
     mockUpdateRows = [{ ...MOCK_MCP, serverName: 'updated' }];
     const res = await app.request(
-      jsonReq('/api/mcp/mcp-001', {
+      jsonReq(`/api/mcp/${CHANNEL_ID}/mcp-001`, {
         method: 'PUT',
         body: JSON.stringify({ serverName: 'updated' }),
       }),
@@ -147,10 +148,10 @@ describe('MCP Routes', () => {
     expect(body.data.serverName).toBe('updated');
   });
 
-  test('PUT /:id returns 404 when not found', async () => {
+  test('PUT /:channelId/:id returns 404 when not found', async () => {
     mockUpdateRows = [];
     const res = await app.request(
-      jsonReq('/api/mcp/nonexistent', {
+      jsonReq(`/api/mcp/${CHANNEL_ID}/nonexistent`, {
         method: 'PUT',
         body: JSON.stringify({ serverName: 'x' }),
       }),
@@ -158,17 +159,18 @@ describe('MCP Routes', () => {
     expect(res.status).toBe(404);
   });
 
-  test('DELETE /:id deletes config', async () => {
+  test('DELETE /:channelId/:id deletes config', async () => {
+    mockRows = [MOCK_MCP];
     mockDeleteRows = [MOCK_MCP];
-    const res = await app.request('/api/mcp/mcp-001', { method: 'DELETE' });
+    const res = await app.request(`/api/mcp/${CHANNEL_ID}/mcp-001`, { method: 'DELETE' });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.deleted).toBe(true);
   });
 
-  test('DELETE /:id returns 404 when not found', async () => {
+  test('DELETE /:channelId/:id returns 404 when not found', async () => {
     mockDeleteRows = [];
-    const res = await app.request('/api/mcp/nonexistent', { method: 'DELETE' });
+    const res = await app.request(`/api/mcp/${CHANNEL_ID}/nonexistent`, { method: 'DELETE' });
     expect(res.status).toBe(404);
   });
 

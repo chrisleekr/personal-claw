@@ -1,0 +1,227 @@
+# Scheduled Research Workflow
+#
+# Runs every 12 hours (and on-demand via workflow_dispatch) to research
+# improvements for the PersonalClaw autonomous agent platform.
+#
+# Produces exactly ONE deeply researched GitHub issue per run.
+# No automated code changes — findings are issues for manual triage.
+#
+# Design decisions and workarounds:
+# - PAT instead of OIDC: Cron-triggered workflows fail OIDC token exchange
+#   with 401 Unauthorized. See https://github.com/anthropics/claude-code-action/issues/814
+# - allowed_bots: '*': The checkHumanActor function blocks scheduled workflows.
+#   Fixed in PR #916. See https://github.com/anthropics/claude-code-action/issues/900
+# - --disallowedTools "": WebSearch and WebFetch are disabled by default in the action.
+#   Must explicitly allow them and clear the disallowed list.
+#   See https://github.com/anthropics/claude-code-action/issues/690
+# - --max-turns 80: Allows Opus to do thorough deep research (~$8/run, daily).
+#   Previous attempts at 20 and 40 turns exhausted budget before completing.
+#   80 turns gives enough room for: architecture review, subsystem deep-dive,
+#   web search, Mermaid diagram creation, and issue creation.
+# - One issue per run: Enables deep analysis with proper Mermaid diagrams and
+#   thorough references, rather than many shallow findings.
+
+name: Scheduled Research
+
+on:
+  schedule:
+    - cron: "0 17 * * *" # 3 AM AEST
+  workflow_dispatch:
+    inputs:
+      focus_area:
+        description: "Area to focus research on (e.g., 'memory system', 'security', 'performance')"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write # Required by claude-code-action even with PAT auth
+
+concurrency:
+  group: research-workflow
+  cancel-in-progress: false
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Validate required secrets
+        env:
+          HAS_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+          HAS_PAT: ${{ secrets.PERSONAL_ACCESS_TOKEN != '' }}
+        run: |
+          missing=""
+          if [ "$HAS_OAUTH_TOKEN" != "true" ]; then
+            missing="${missing} CLAUDE_CODE_OAUTH_TOKEN"
+          fi
+          if [ "$HAS_PAT" != "true" ]; then
+            missing="${missing} PERSONAL_ACCESS_TOKEN"
+          fi
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required secrets:${missing}. Add them at Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Pick random research area
+        id: area
+        env:
+          FOCUS_AREA_INPUT: ${{ github.event.inputs.focus_area || '' }}
+        run: |
+          if [ -n "$FOCUS_AREA_INPUT" ]; then
+            echo "area=$FOCUS_AREA_INPUT" >> "$GITHUB_OUTPUT"
+            echo "Selected area from input: $FOCUS_AREA_INPUT"
+          else
+            areas=("agent-engine" "memory" "tools" "security" "performance" "infrastructure" "bug" "observability" "cost" "testing")
+            random_index=$((RANDOM % ${#areas[@]}))
+            selected="${areas[$random_index]}"
+            echo "area=$selected" >> "$GITHUB_OUTPUT"
+            echo "Randomly selected area: $selected"
+          fi
+
+      - name: Run research with Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          allowed_bots: "*"
+          # track_progress: true — not supported for schedule/workflow_dispatch events
+          claude_args: |
+            --model opus
+            --max-turns 80
+            --allowedTools "WebSearch,WebFetch,Read,Glob,Grep,Bash(gh issue create:*),Bash(gh issue list:*),Bash(gh label create:*),Bash(git log:*),Bash(cat:*),Bash(date:*)"
+            --disallowedTools ""
+          prompt: |
+            REPO: ${{ github.repository }}
+            FOCUS_AREA: ${{ steps.area.outputs.area }}
+
+            ## Mission
+
+            You are a principal software engineer improving the PersonalClaw autonomous agent
+            platform. Your mission: **improve existing features toward full autonomy**.
+            Research how current features can be enhanced, then create ONE GitHub issue.
+
+            ## Quality Gate
+
+            Every finding MUST be: (1) Feasible — implementable in the current codebase,
+            (2) Extendable — builds on existing architecture, no rewrites, (3) 100% Accurate —
+            all file paths, function names verified by reading actual files. If a finding fails
+            any criterion, skip it.
+
+            ## STRICT Workflow — Follow These Steps In Order
+
+            You have a LIMITED turn budget. Do NOT read every file. Follow this exact sequence:
+
+            ### Step 1: Understand the architecture (2-3 turns max)
+            - Read `docs/ARCHITECTURE.md` and `CLAUDE.md`
+            - Run `git log --oneline -20` to see recent changes
+            - This gives you the full system overview without reading every file
+
+            ### Step 2: Check for duplicates in the assigned area (1 turn)
+            - Your assigned area for this run is: FOCUS_AREA (set above, pre-selected randomly
+              for scheduled runs or from user input for manual runs)
+            - Check existing research issues to avoid duplicates:
+              ```
+              gh issue list --label research --state all --limit 500 --json title,state
+              ```
+            - If your finding is already covered by an existing issue, find a DIFFERENT
+              finding within the same area. Do NOT switch areas.
+            - Focus exclusively on the FOCUS_AREA subsystem
+
+            ### Step 3: Deep-dive into that subsystem
+            - Read the key files in your chosen subsystem thoroughly
+            - Start with the main module entry point, then follow imports to core logic
+            - Understand how the feature currently works before proposing improvements
+
+            ### Step 4: Research improvements via WebSearch (3-5 turns max)
+            - Search for best practices specific to your chosen subsystem
+            - Look for: new patterns, libraries, or techniques that could improve
+              the existing feature toward greater autonomy
+            - Example searches: "AI agent memory architecture best practices 2026",
+              "autonomous agent self-healing patterns", "pgvector optimization techniques"
+
+            ### Step 5: Create the issue (3-5 turns max)
+            1. Create labels:
+               ```
+               gh label create research --description "Automated research finding" --color 0e8a16 --force
+               gh label create [area] --color 1d76db --force
+               ```
+               Area labels (use ONLY these): agent-engine, memory, tools, security, performance, infrastructure, bug, observability, cost, testing
+            2. Write issue body to temp file and create:
+               ```
+               cat > /tmp/issue-body.md << 'ISSUE_EOF'
+               [issue body here]
+               ISSUE_EOF
+               gh issue create --title "[type]([area]): [summary]" --label "research,[area]" --body-file /tmp/issue-body.md
+               ```
+               Title uses Conventional Commits style — pick the type based on your finding:
+               fix, feat, perf, refactor, security, test, docs
+               Examples:
+               - fix(memory): pgvector query returns stale embeddings after compaction
+               - feat(agent-engine): add circuit breaker for provider fallback
+               - perf(memory): batch pgvector inserts to reduce write latency
+               - security(tools): sandbox escape via symlink in CLI executor
+               - test(agent-engine): no tests for approval gateway timeout
+
+            ## Issue Body Template
+
+            Use this EXACT structure:
+
+            ## Finding
+            [What you discovered. Reference exact file paths and line numbers.
+            Explain current behavior and how it can be improved toward autonomy.]
+
+            ## Diagram
+
+            [MANDATORY Mermaid diagram. CRITICAL syntax rules for GitHub rendering:
+            - classDef: use SEMICOLONS between properties: `classDef foo fill:#196f3d;color:#ffffff`
+              NOT commas: `fill:#196f3d,color:#ffffff` ← THIS WILL BREAK
+            - Use <br/> for newlines, never \n
+            - No parentheses in node labels — use square brackets: `node["label"]`
+            - Use :::className inline: `nodeId["label"]:::styleName`
+            - Do NOT nest state blocks or use multiple subgraph blocks
+            - Node IDs must be 3+ characters
+            - Prefer simple `graph LR` or `graph TD` diagrams — they render most reliably
+            - WRAP the diagram in a proper fenced code block: triple backtick + mermaid
+            The diagram must EXPLAIN the finding, not decorate.]
+
+            ## Rationale
+            [Why this matters. Include metrics or estimates where possible.]
+
+            ## References
+            - **Internal**: [file paths, line numbers you verified]
+            - **External**: [URLs from WebSearch]
+
+            ## Suggested Next Steps
+            1. [Concrete action]
+            2. [Alternative if applicable]
+
+            ## Areas Evaluated
+            [What you looked at this run, including areas with no findings.]
+
+            ---
+            *Generated by scheduled research workflow on [run date +%Y-%m-%d to get date]*
+
+            ## If No Finding
+
+            If no improvement passes the quality gate, do NOT create an issue. Output a summary
+            of what you analyzed and why nothing qualified.
+
+            ## Rules
+            - DO NOT modify files or create branches/PRs
+            - ONLY create issues via `gh issue create`
+            - Exactly ONE issue per run
+            - NEVER create test/placeholder issues — no "test body", no dry runs. Only create
+              the final issue with the COMPLETE body using --body-file /tmp/issue-body.md
+            - Write the FULL issue body to /tmp/issue-body.md FIRST, then create the issue ONCE
+            - Start with architecture docs for context, then deep-dive into your chosen subsystem
+            - ALWAYS include a Mermaid diagram
+            - ALWAYS verify file paths by reading files before citing them

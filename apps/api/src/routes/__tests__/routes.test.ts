@@ -253,9 +253,9 @@ describe('Routes', () => {
       expect(body.error).toBe('VALIDATION_ERROR');
     });
 
-    test('DELETE /:id returns 404 when not found', async () => {
+    test('DELETE /:channelId/:id returns 404 when not found', async () => {
       mockDeleteRows = [];
-      const res = await app.request('/api/skills/nonexistent', {
+      const res = await app.request(`/api/skills/${CHANNEL_ID}/nonexistent`, {
         method: 'DELETE',
       });
       expect(res.status).toBe(404);
@@ -280,9 +280,9 @@ describe('Routes', () => {
       expect(body.data).toBeArray();
     });
 
-    test('PATCH /:id returns 400 for empty content', async () => {
+    test('PATCH /:channelId/:id returns 400 for empty content', async () => {
       const res = await app.request(
-        jsonReq('/api/memories/mem-001', {
+        jsonReq(`/api/memories/${CHANNEL_ID}/mem-001`, {
           method: 'PATCH',
           body: JSON.stringify({ content: '' }),
         }),
@@ -292,10 +292,11 @@ describe('Routes', () => {
       expect(body.error).toBe('VALIDATION_ERROR');
     });
 
-    test('PATCH /:id updates memory', async () => {
+    test('PATCH /:channelId/:id updates memory', async () => {
+      mockRows = [MOCK_MEMORY];
       mockUpdateRows = [{ ...MOCK_MEMORY, content: 'Updated' }];
       const res = await app.request(
-        jsonReq('/api/memories/mem-001', {
+        jsonReq(`/api/memories/${CHANNEL_ID}/mem-001`, {
           method: 'PATCH',
           body: JSON.stringify({ content: 'Updated' }),
         }),
@@ -305,9 +306,9 @@ describe('Routes', () => {
       expect(body.data.content).toBe('Updated');
     });
 
-    test('DELETE /:id returns 404 when not found', async () => {
+    test('DELETE /:channelId/:id returns 404 when not found', async () => {
       mockDeleteRows = [];
-      const res = await app.request('/api/memories/mem-001', {
+      const res = await app.request(`/api/memories/${CHANNEL_ID}/mem-001`, {
         method: 'DELETE',
       });
       expect(res.status).toBe(404);
