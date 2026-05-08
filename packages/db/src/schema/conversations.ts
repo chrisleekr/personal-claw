@@ -1,11 +1,11 @@
 import {
   boolean,
-  index,
   integer,
   jsonb,
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { channels } from './channels';
@@ -26,6 +26,6 @@ export const conversations = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index('conversations_channel_thread_idx').on(table.channelId, table.externalThreadId),
+    unique('conversations_channel_thread_unique').on(table.channelId, table.externalThreadId),
   ],
 );
