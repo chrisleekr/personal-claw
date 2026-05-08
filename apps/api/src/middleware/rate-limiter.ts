@@ -13,28 +13,15 @@ export interface RateLimitResult {
   retryAfterSeconds: number;
 }
 
-// Atomic INCR-and-EXPIRE in a single Redis round-trip. Using a Lua script
-// avoids the immortal-key bug where a process crash between separate INCR
-// and EXPIRE calls leaves a counter with no TTL, permanently rate-limiting
-// the user. The script also re-applies the TTL if a previous run left the
-// key without one (PTTL/TTL returns -1) so legacy keys self-heal.
-const RATE_LIMIT_SCRIPT = `
-local current = redis.call('INCR', KEYS[1])
-if current == 1 then
-  redis.call('EXPIRE', KEYS[1], ARGV[1])
-  return {current, tonumber(ARGV[1])}
-end
-local ttl = redis.call('TTL', KEYS[1])
-if ttl < 0 then
-  redis.call('EXPIRE', KEYS[1], ARGV[1])
-  ttl = tonumber(ARGV[1])
-end
-return {current, ttl}
-`;
-
+// Coerce Redis return values (numbers, bulk strings, bigints) to a finite
+// JS number; anything unparseable falls back to 0 so `remaining` and TTL
+// math never produce NaN.
 function toNumber(value: unknown): number {
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string') return Number(value);
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'string') {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
   if (typeof value === 'bigint') return Number(value);
   return 0;
 }
@@ -52,12 +39,15 @@ export async function checkRateLimit(
 
   try {
     const redis = getRedis();
-    const result = (await redis.eval(
-      RATE_LIMIT_SCRIPT,
-      1,
-      key,
-      String(VALKEY_TTL.rateLimitWindow),
-    )) as [unknown, unknown];
+    // Custom command registered in `redis.ts` via `defineCommand` — first
+    // call ships the Lua body, subsequent calls go over EVALSHA. Atomic
+    // INCR + EXPIRE eliminates the immortal-key bug where a crash between
+    // separate INCR/EXPIRE calls leaves a counter with no TTL; the script
+    // also re-applies the TTL if a key has none, self-healing legacy keys.
+    const result = (await redis.rateLimitIncr(key, String(VALKEY_TTL.rateLimitWindow))) as [
+      unknown,
+      unknown,
+    ];
 
     const current = toNumber(result?.[0]);
     const ttl = toNumber(result?.[1]);

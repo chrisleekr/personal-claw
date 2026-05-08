@@ -25,7 +25,9 @@ function buildDbLike(): unknown {
       values: () => {
         mockInsertCalled = true;
         const obj: Record<string, unknown> = {
-          returning: () => [{ messages: [] }],
+          // xmax: '0' = fresh insert path (no conflict). MemoryEngine callers
+          // exercise ConversationMemory.append, which now branches on xmax.
+          returning: () => [{ messages: [], xmax: '0' }],
           onConflictDoUpdate: () => {
             return obj;
           },

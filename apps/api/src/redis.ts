@@ -5,11 +5,32 @@ import { errorDetails } from './utils/error-fmt';
 
 const logger = getLogger(['personalclaw', 'valkey']);
 
-let redisInstance: Redis | null = null;
+// Atomic INCR-and-EXPIRE in a single Redis round-trip. Registered once per
+// connection via defineCommand so subsequent calls go over EVALSHA, avoiding
+// re-shipping the Lua body on every rate-limit check.
+const RATE_LIMIT_SCRIPT = `
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+  return {current, tonumber(ARGV[1])}
+end
+local ttl = redis.call('TTL', KEYS[1])
+if ttl < 0 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+  ttl = tonumber(ARGV[1])
+end
+return {current, ttl}
+`;
 
-export function getRedis(): Redis {
+export interface RateLimitRedis extends Redis {
+  rateLimitIncr(key: string, ttl: string): Promise<[number, number]>;
+}
+
+let redisInstance: RateLimitRedis | null = null;
+
+export function getRedis(): RateLimitRedis {
   if (!redisInstance) {
-    redisInstance = new Redis(redisUrl(), {
+    const r = new Redis(redisUrl(), {
       maxRetriesPerRequest: 3,
       retryStrategy(times) {
         if (times > 5) return null;
@@ -18,13 +39,17 @@ export function getRedis(): Redis {
       lazyConnect: true,
     });
 
-    redisInstance.on('error', (err) => {
+    r.defineCommand('rateLimitIncr', { numberOfKeys: 1, lua: RATE_LIMIT_SCRIPT });
+
+    r.on('error', (err) => {
       logger.error('Valkey connection error', errorDetails(err));
     });
 
-    redisInstance.connect().catch((err) => {
+    r.connect().catch((err) => {
       logger.warn('Valkey initial connection failed, will retry', errorDetails(err));
     });
+
+    redisInstance = r as RateLimitRedis;
   }
   return redisInstance;
 }

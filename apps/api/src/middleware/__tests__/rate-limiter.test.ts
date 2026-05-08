@@ -8,7 +8,10 @@ let mockEvalCalls = 0;
 mock.module('../../redis', () => ({
   isRedisAvailable: () => mockRedisAvailable,
   getRedis: () => ({
-    eval: async () => {
+    // Custom command registered via defineCommand in redis.ts — the
+    // production call site uses redis.rateLimitIncr(key, ttl), and the
+    // mock mirrors that surface so we exercise the real path.
+    rateLimitIncr: async () => {
       mockEvalCalls++;
       if (mockEvalThrows) throw new Error('redis eval failed');
       return mockEvalReturn;
@@ -115,5 +118,18 @@ describe('checkRateLimit', () => {
     const result = await checkRateLimit(CHANNEL_ID, USER_ID, 10);
     expect(result.allowed).toBe(true);
     expect(result.remaining).toBe(9);
+  });
+
+  test('coerces non-numeric Redis returns to 0 instead of NaN', async () => {
+    mockRedisAvailable = true;
+    // Defensive: a misbehaving Redis (or buffer-mode response) could surface
+    // an empty string or garbage where we expect a number. `remaining` and
+    // TTL math must stay finite.
+    mockEvalReturn = ['' as unknown as number, 'abc' as unknown as number];
+    const result = await checkRateLimit(CHANNEL_ID, USER_ID, 10);
+    expect(result.allowed).toBe(true);
+    expect(result.remaining).toBe(10);
+    expect(Number.isFinite(result.remaining)).toBe(true);
+    expect(Number.isFinite(result.retryAfterSeconds)).toBe(true);
   });
 });

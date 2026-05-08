@@ -17,6 +17,14 @@ WHERE "id" IN (SELECT "id" FROM ranked WHERE rn > 1);
 -- non-unique one redundant.
 DROP INDEX IF EXISTS "conversations_channel_thread_idx";
 --> statement-breakpoint
-ALTER TABLE "conversations"
-  ADD CONSTRAINT "conversations_channel_thread_unique"
-  UNIQUE ("channel_id", "external_thread_id");
+-- Postgres has no `ADD CONSTRAINT IF NOT EXISTS`, so wrap in a DO block that
+-- swallows the duplicate_object error to keep this migration idempotent
+-- alongside the `IF NOT EXISTS` guards used elsewhere (e.g. migration 0016).
+DO $$ BEGIN
+  ALTER TABLE "conversations"
+    ADD CONSTRAINT "conversations_channel_thread_unique"
+    UNIQUE ("channel_id", "external_thread_id");
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN duplicate_table THEN NULL;
+END $$;

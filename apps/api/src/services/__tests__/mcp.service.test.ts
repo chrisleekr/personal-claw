@@ -33,6 +33,9 @@ let mockSelectRows: unknown[] = [];
 let mockInsertRows: unknown[] = [];
 let mockUpdateRows: unknown[] = [];
 let mockDeleteRows: unknown[] = [];
+let mockSelectCalled = false;
+let lastInsertValues: Record<string, unknown> | null = null;
+let lastConflictUpdateSet: Record<string, unknown> | null = null;
 
 function chainable(getRows: () => unknown[]): unknown {
   const methods: Record<string, unknown> = {};
@@ -46,16 +49,25 @@ function insertChain(getRows: () => unknown[]): unknown {
   const obj: Record<string, unknown> = {
     returning: () => [...getRows()],
   };
-  obj.onConflictDoUpdate = () => obj;
+  obj.onConflictDoUpdate = (arg: { set?: Record<string, unknown> }) => {
+    lastConflictUpdateSet = arg?.set ?? null;
+    return obj;
+  };
   obj.onConflictDoNothing = () => obj;
   return obj;
 }
 
 mock.module('../../db', () => ({
   getDb: () => ({
-    select: () => chainable(() => mockSelectRows),
+    select: () => {
+      mockSelectCalled = true;
+      return chainable(() => mockSelectRows);
+    },
     insert: () => ({
-      values: () => insertChain(() => mockInsertRows),
+      values: (vals: Record<string, unknown>) => {
+        lastInsertValues = vals;
+        return insertChain(() => mockInsertRows);
+      },
     }),
     update: () => ({
       set: () => chainable(() => mockUpdateRows),
@@ -83,6 +95,9 @@ describe('MCPService', () => {
     mockInsertRows = [];
     mockUpdateRows = [];
     mockDeleteRows = [];
+    mockSelectCalled = false;
+    lastInsertValues = null;
+    lastConflictUpdateSet = null;
   });
 
   afterEach(() => {
@@ -90,6 +105,9 @@ describe('MCPService', () => {
     mockInsertRows = [];
     mockUpdateRows = [];
     mockDeleteRows = [];
+    mockSelectCalled = false;
+    lastInsertValues = null;
+    lastConflictUpdateSet = null;
   });
 
   describe('listGlobal', () => {
@@ -180,10 +198,17 @@ describe('MCPService', () => {
   describe('upsertToolPolicy', () => {
     test('creates new policy via INSERT ON CONFLICT (channel-scoped)', async () => {
       mockSelectRows = [];
-      mockInsertRows = [MOCK_TOOL_POLICY];
+      // Mock returns a row that mirrors the input so the assertion would fail
+      // if the implementation dropped `disabledTools` on the floor. Both the
+      // INSERT values and the ON CONFLICT update set are checked below.
+      mockInsertRows = [{ ...MOCK_TOOL_POLICY, denyList: ['tool_a'] }];
       const result = await service.upsertToolPolicy('mcp-001', CHANNEL_ID, ['tool_a']);
       expect(result).toBeDefined();
-      expect(result?.denyList).toEqual(['dangerous_tool']);
+      expect(result?.denyList).toEqual(['tool_a']);
+      expect(lastInsertValues?.denyList).toEqual(['tool_a']);
+      expect(lastInsertValues?.channelId).toBe(CHANNEL_ID);
+      expect(lastInsertValues?.mcpConfigId).toBe('mcp-001');
+      expect(lastConflictUpdateSet?.denyList).toEqual(['tool_a']);
     });
 
     test('updates existing policy via INSERT ON CONFLICT (channel-scoped)', async () => {
@@ -192,6 +217,8 @@ describe('MCPService', () => {
       const result = await service.upsertToolPolicy('mcp-001', CHANNEL_ID, ['tool_b']);
       expect(result).toBeDefined();
       expect(result?.denyList).toEqual(['tool_b']);
+      expect(lastInsertValues?.denyList).toEqual(['tool_b']);
+      expect(lastConflictUpdateSet?.denyList).toEqual(['tool_b']);
     });
 
     test('upserts global policy via INSERT ON CONFLICT (channelId null)', async () => {
@@ -201,13 +228,18 @@ describe('MCPService', () => {
       expect(result).toBeDefined();
       expect(result?.channelId).toBeNull();
       expect(result?.denyList).toEqual(['tool_c']);
+      expect(lastInsertValues?.channelId).toBeNull();
+      expect(lastInsertValues?.denyList).toEqual(['tool_c']);
     });
 
     test('does not call select before upsert (atomic path)', async () => {
       mockSelectRows = [{ id: 'should-not-be-read' }];
-      mockInsertRows = [MOCK_TOOL_POLICY];
+      mockInsertRows = [{ ...MOCK_TOOL_POLICY, denyList: ['tool_a'] }];
       const result = await service.upsertToolPolicy('mcp-001', CHANNEL_ID, ['tool_a']);
       expect(result).toBeDefined();
+      // Guards against regressing back to the check-then-act read-modify-write
+      // pattern: the atomic INSERT … ON CONFLICT path must not select first.
+      expect(mockSelectCalled).toBe(false);
     });
   });
 

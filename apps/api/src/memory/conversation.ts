@@ -25,7 +25,7 @@ export class ConversationMemory {
       ];
     }
 
-    return (row.messages as ConversationMessage[]) ?? [];
+    return row.messages ?? [];
   }
 
   async append(
@@ -34,7 +34,6 @@ export class ConversationMemory {
     ...messages: ConversationMessage[]
   ): Promise<{ tokenCount: number }> {
     const db = getDb();
-    const newMessages = messages as unknown as Record<string, unknown>[];
     const initialText = messages.map((m) => m.content).join(' ');
     const initialTokenCount = estimateTokenCount(initialText);
 
@@ -42,13 +41,16 @@ export class ConversationMemory {
       // Atomic INSERT … ON CONFLICT DO UPDATE: when a row already exists for
       // (channel_id, external_thread_id), Postgres concatenates the existing
       // messages with the new ones in a single statement under a row-level
-      // lock, eliminating the read-modify-write race.
+      // lock, eliminating the read-modify-write race. `xmax` in RETURNING
+      // distinguishes the no-conflict insert path (xmax = '0') from the
+      // update path so we can skip the redundant token_count rewrite when
+      // the VALUES clause already wrote the correct count.
       const [row] = await tx
         .insert(conversations)
         .values({
           channelId,
           externalThreadId: threadId,
-          messages: newMessages,
+          messages,
           tokenCount: initialTokenCount,
         })
         .onConflictDoUpdate({
@@ -58,14 +60,23 @@ export class ConversationMemory {
             updatedAt: new Date(),
           },
         })
-        .returning({ messages: conversations.messages });
+        .returning({
+          messages: conversations.messages,
+          xmax: sql<string>`xmax::text`,
+        });
 
-      const mergedMessages = (row?.messages as ConversationMessage[] | undefined) ?? [];
+      const mergedMessages = row?.messages ?? [];
+      const isInsertPath = row?.xmax === '0';
+      if (isInsertPath) {
+        return { tokenCount: initialTokenCount };
+      }
+
       const allText = mergedMessages.map((m) => m.content).join(' ');
       const tokenCount = estimateTokenCount(allText);
 
-      // Recompute token_count from the merged messages so concurrent appends
-      // don't leave it referring to only one writer's contribution.
+      // Conflict path: recompute token_count from the merged messages so
+      // concurrent appends don't leave it referring to only one writer's
+      // contribution.
       await tx
         .update(conversations)
         .set({ tokenCount })

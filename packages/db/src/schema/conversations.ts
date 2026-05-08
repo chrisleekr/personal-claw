@@ -1,3 +1,4 @@
+import type { ConversationMessage } from '@personalclaw/shared';
 import {
   boolean,
   integer,
@@ -18,7 +19,7 @@ export const conversations = pgTable(
       .notNull()
       .references(() => channels.id, { onDelete: 'cascade' }),
     externalThreadId: text('external_thread_id').notNull(),
-    messages: jsonb('messages').notNull().default([]),
+    messages: jsonb('messages').$type<ConversationMessage[]>().notNull().default([]),
     summary: text('summary'),
     isCompacted: boolean('is_compacted').notNull().default(false),
     tokenCount: integer('token_count'),
