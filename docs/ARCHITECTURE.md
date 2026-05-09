@@ -998,4 +998,5 @@ graph TB
 | `semantic-release.yml` | Called by CI or manual | Semantic versioning, changelog, GitHub release |
 | `docker-build.yml` | Called by semantic-release or manual | Build and push `web` and `api` images to Docker Hub |
 | `generate-labels.yml` | PRs and issues | Auto-label from title via `.github/labeler.yml` |
-| `merge-dependencies.yml` | Dependabot PRs | Auto-merge minor/patch; comment on major updates |
+
+Dependency updates are managed by [Renovate](https://docs.renovatebot.com/) (config at `renovate.json`); auto-merge for minor/patch/digest is handled by Renovate's built-in `platformAutomerge`, not a workflow.

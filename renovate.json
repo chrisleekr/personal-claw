@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits"],
+  "timezone": "Australia/Melbourne",
+  "schedule": ["before 4am on Monday"],
+  "labels": ["dependencies", "renovate"],
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 2,
+  "packageRules": [
+    {
+      "description": "All minor/patch/digest updates land in a single weekly bundle and auto-merge on green CI.",
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "all minor and patch",
+      "automerge": true,
+      "platformAutomerge": true
+    },
+    {
+      "description": "Group npm/bun major bumps for manual review.",
+      "matchManagers": ["npm", "bun"],
+      "matchUpdateTypes": ["major"],
+      "groupName": "npm/bun major"
+    },
+    {
+      "description": "Group GitHub Actions major bumps for manual review.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["major"],
+      "groupName": "github-actions major"
+    },
+    {
+      "description": "Group Dockerfile FROM major bumps for manual review.",
+      "matchManagers": ["dockerfile"],
+      "matchUpdateTypes": ["major"],
+      "groupName": "docker major"
+    },
+    {
+      "description": "Wait 7 days before raising minor/patch/digest PRs to catch bad releases before automerge.",
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "minimumReleaseAge": "7 days",
+      "internalChecksFilter": "strict"
+    },
+    {
+      "description": "Wait 14 days before raising major update PRs for manual review stability.",
+      "matchUpdateTypes": ["major"],
+      "minimumReleaseAge": "14 days",
+      "internalChecksFilter": "strict"
+    }
+  ]
+}
