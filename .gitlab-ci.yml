@@ -97,9 +97,9 @@ build:
 # ---------------------------------------------------------------------------
 
 .docker_build_template: &docker_build_template
-  image: docker:27-dind
+  image: docker:28-dind
   services:
-    - name: docker:27-dind
+    - name: docker:28-dind
       alias: docker
   variables:
     <<: *docker_variables
