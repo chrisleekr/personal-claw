@@ -155,6 +155,38 @@ describe('spawnSubtask', () => {
     expect(result?.text).toBe('Subtask timed out');
   });
 
+  test('clears timer immediately after generateText settles so a slow persist cannot flip status', async () => {
+    // Mock storeResult-side latency: redis.set hangs for 80ms, longer than
+    // the 30ms timeout budget. Under the fix the timer is cleared the
+    // instant generateText resolves, so the timer cannot fire during the
+    // persist and `controller.signal.aborted` stays false.
+    mockRedisAvailable = true;
+    let abortedDuringPersist = false;
+    let capturedSignal: AbortSignal | undefined;
+    mockGenerateText.mockImplementationOnce((opts: { abortSignal?: AbortSignal }) => {
+      capturedSignal = opts.abortSignal;
+      return Promise.resolve({ text: 'Subtask completed' });
+    });
+    mockRedisSet.mockImplementationOnce(async () => {
+      await Bun.sleep(80);
+      // Sample the controller state at the end of the slow persist. Under
+      // the unfixed code the 30ms timer fires here and flips this to true.
+      if (capturedSignal?.aborted) abortedDuringPersist = true;
+      return 'OK';
+    });
+
+    await spawnSubtask({
+      channelId: 'ch-001',
+      instruction: 'fast generate, slow persist',
+      timeoutMs: 30,
+    });
+
+    // Wait past both the 30ms timeout and the 80ms storeResult.
+    await Bun.sleep(150);
+
+    expect(abortedDuringPersist).toBe(false);
+  });
+
   test('does not overwrite timeout outcome with a later completion', async () => {
     // Race: abort fires, but a stale completion arrives after. Production
     // honors the timeout verdict via the timedOut flag — assert no

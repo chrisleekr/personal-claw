@@ -86,9 +86,16 @@ export async function spawnSubtask(params: SubtaskParams): Promise<string> {
         abortSignal: controller.signal,
       });
 
-      if (timedOut) {
-        // The abort fired between the LLM responding and us recording it;
-        // honor the timeout verdict so callers see a consistent status.
+      // Stop the timer the moment generateText settles so the abort callback
+      // can't fire during the subsequent storeResult await and flip the
+      // recorded status to 'timeout' after we've already chosen 'completed'.
+      clearTimeout(timer);
+
+      // Re-check after clearTimeout in case the timer fired between
+      // generateText resolving and us reaching this line. The abort verdict
+      // is authoritative — if it fired within the budget, the caller has
+      // already given up.
+      if (timedOut || controller.signal.aborted) {
         await storeResult(taskId, {
           taskId,
           text: 'Subtask timed out',
@@ -105,6 +112,7 @@ export async function spawnSubtask(params: SubtaskParams): Promise<string> {
         durationMs: Date.now() - start,
       });
     } catch (error) {
+      clearTimeout(timer);
       // generateText surfaces aborts as either AbortError or a thrown
       // controller.signal.reason. Map both to a timeout outcome rather than
       // a generic failure.
@@ -120,8 +128,6 @@ export async function spawnSubtask(params: SubtaskParams): Promise<string> {
         status: isAbort ? 'timeout' : 'failed',
         durationMs: Date.now() - start,
       });
-    } finally {
-      clearTimeout(timer);
     }
   };
 
