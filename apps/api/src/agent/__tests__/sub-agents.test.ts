@@ -112,6 +112,78 @@ describe('spawnSubtask', () => {
     expect(result?.text).toBe('API error');
   });
 
+  test('passes abort signal to generateText', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    mockGenerateText.mockImplementationOnce((opts: { abortSignal?: AbortSignal }) => {
+      capturedSignal = opts.abortSignal;
+      return Promise.resolve({ text: 'ok' });
+    });
+
+    await spawnSubtask({ channelId: 'ch-001', instruction: 'inspect signal' });
+    await Bun.sleep(50);
+
+    expect(capturedSignal).toBeDefined();
+    // AbortSignal in Bun is an EventTarget; .aborted is the canonical flag.
+    expect(typeof capturedSignal?.aborted).toBe('boolean');
+  });
+
+  test('records timeout status when abort fires before generateText completes', async () => {
+    // Mock generateText to hang until the abort signal fires, mirroring how
+    // a real LLM client behaves with abortSignal: it rejects with AbortError
+    // when the controller aborts.
+    mockGenerateText.mockImplementationOnce((opts: { abortSignal?: AbortSignal }) => {
+      return new Promise((_, reject) => {
+        opts.abortSignal?.addEventListener('abort', () => {
+          const err = new Error('aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+    });
+
+    const taskId = await spawnSubtask({
+      channelId: 'ch-001',
+      instruction: 'will time out',
+      timeoutMs: 50,
+    });
+
+    await Bun.sleep(200);
+
+    const result = await getSubtaskResult(taskId);
+    expect(result).not.toBeNull();
+    expect(result?.status).toBe('timeout');
+    expect(result?.text).toBe('Subtask timed out');
+  });
+
+  test('does not overwrite timeout outcome with a later completion', async () => {
+    // Race: abort fires, but a stale completion arrives after. Production
+    // honors the timeout verdict via the timedOut flag — assert no
+    // completed/failed status is recorded when the abort already fired.
+    let resolveLate: (value: { text: string }) => void = () => {};
+    mockGenerateText.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveLate = resolve;
+        }),
+    );
+
+    const taskId = await spawnSubtask({
+      channelId: 'ch-001',
+      instruction: 'late completion',
+      timeoutMs: 30,
+    });
+
+    // Wait for the abort to fire.
+    await Bun.sleep(80);
+    // Now trigger a late "successful" completion.
+    resolveLate({ text: 'late result' });
+    await Bun.sleep(30);
+
+    const result = await getSubtaskResult(taskId);
+    expect(result?.status).toBe('timeout');
+    expect(result?.text).not.toBe('late result');
+  });
+
   test('uses redis when available', async () => {
     mockRedisAvailable = true;
     mockRedisGet.mockResolvedValue(
