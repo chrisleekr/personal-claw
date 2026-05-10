@@ -383,6 +383,19 @@ function shouldTryNextFallback(error: unknown): boolean {
   return statusCode === 401 || statusCode === 403;
 }
 
+// Wall-clock budget for generateStage. Bounds tool-call iterations
+// (stepCountIs) bound *steps*, not wall time, so a single hung step on a
+// stalled provider could pin a worker indefinitely without this. Five
+// minutes is generous enough to cover legitimate multi-step tool runs while
+// guaranteeing the worker recovers. Override via AGENT_PIPELINE_TIMEOUT_MS.
+const DEFAULT_PIPELINE_TIMEOUT_MS = 5 * 60 * 1000;
+function getPipelineTimeoutMs(): number {
+  const raw = process.env.AGENT_PIPELINE_TIMEOUT_MS;
+  if (!raw) return DEFAULT_PIPELINE_TIMEOUT_MS;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PIPELINE_TIMEOUT_MS;
+}
+
 export const generateStage: PipelineStage = async (ctx) => {
   // If detection already blocked the input, skip the LLM call entirely and
   // propagate the block notice as the final response.
@@ -425,32 +438,61 @@ export const generateStage: PipelineStage = async (ctx) => {
     toolNames: Object.keys(ctx.tools),
   });
 
-  for (let i = 0; i < providerEntries.length; i++) {
-    const p = providerEntries[i];
-    try {
-      result = await generateText({
-        model: p.provider(p.model),
-        system: ctx.systemPrompt,
-        messages: ctx.messages,
-        tools: ctx.tools,
-        stopWhen: stepCountIs(15),
-      });
-      usedProviderName = p.providerName;
-      usedModel = p.model;
-      break;
-    } catch (error) {
-      lastError = error;
-      if (shouldTryNextFallback(error) && i < providerEntries.length - 1) {
-        logger.warn('Provider failed, trying next fallback', {
-          provider: p.providerName,
-          model: p.model,
-          fallbackIndex: i,
-          ...errorDetails(error),
+  // Pipeline-level wall-clock timeout. The same controller is shared across
+  // all fallback attempts so the budget covers the whole stage, not each
+  // individual provider. When the timer fires we abort, mark the stage as
+  // timed out, and bypass the fallback chain — retrying every fallback after
+  // the deadline already expired would only worsen the worker stall.
+  const pipelineController = new AbortController();
+  const pipelineTimeoutMs = getPipelineTimeoutMs();
+  let pipelineTimedOut = false;
+  const pipelineTimer = setTimeout(() => {
+    pipelineTimedOut = true;
+    pipelineController.abort();
+  }, pipelineTimeoutMs);
+
+  try {
+    for (let i = 0; i < providerEntries.length; i++) {
+      const p = providerEntries[i];
+      try {
+        result = await generateText({
+          model: p.provider(p.model),
+          system: ctx.systemPrompt,
+          messages: ctx.messages,
+          tools: ctx.tools,
+          stopWhen: stepCountIs(15),
+          abortSignal: pipelineController.signal,
         });
-        continue;
+        usedProviderName = p.providerName;
+        usedModel = p.model;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (pipelineTimedOut) {
+          logger.warn('Pipeline wall-clock timeout reached, failing fast', {
+            channelId: ctx.params.channelId,
+            threadId: ctx.params.threadId,
+            timeoutMs: pipelineTimeoutMs,
+            provider: p.providerName,
+            model: p.model,
+            fallbackIndex: i,
+          });
+          throw new Error(`Pipeline timeout after ${pipelineTimeoutMs}ms`);
+        }
+        if (shouldTryNextFallback(error) && i < providerEntries.length - 1) {
+          logger.warn('Provider failed, trying next fallback', {
+            provider: p.providerName,
+            model: p.model,
+            fallbackIndex: i,
+            ...errorDetails(error),
+          });
+          continue;
+        }
+        throw error;
       }
-      throw error;
     }
+  } finally {
+    clearTimeout(pipelineTimer);
   }
 
   if (!result) {

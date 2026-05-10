@@ -45,10 +45,38 @@ mock.module('../../sandbox/tools', () => ({
   getSandboxTools: () => ({}),
 }));
 
+// Configurable generateText mock for the generateStage timeout test below.
+// Default behaviour is to resolve immediately so unrelated tests (and any
+// later imports of `ai`) are unaffected.
+let mockGenerateTextImpl: (opts: {
+  abortSignal?: AbortSignal;
+}) => Promise<{ text: string; steps?: unknown[]; usage?: unknown }> = () =>
+  Promise.resolve({ text: 'ok' });
+
+mock.module('ai', () => ({
+  generateText: (opts: { abortSignal?: AbortSignal }) => mockGenerateTextImpl(opts),
+  stepCountIs: () => ({}),
+}));
+
+mock.module('../provider', () => ({
+  getProviderWithFallback: () =>
+    Promise.resolve({
+      provider: () => ({}),
+      model: 'test-model',
+      providerName: 'test-provider',
+      fallbackChain: [],
+    }),
+  resolveProviderEntry: (_name: string, model: string) => ({
+    provider: () => ({}),
+    model,
+  }),
+}));
+
 import {
   assembleContextStage,
   composePromptStage,
   createSandboxStage,
+  generateStage,
   loadToolsStage,
   type PipelineContext,
   persistStage,
@@ -401,6 +429,65 @@ describe('createSandboxStage', () => {
     const result = await stage(ctx);
     expect(result.sandbox).toBeDefined();
     expect(sandboxManager.getOrCreate).toHaveBeenCalled();
+  });
+});
+
+describe('generateStage wall-clock timeout', () => {
+  const ORIGINAL_TIMEOUT = process.env.AGENT_PIPELINE_TIMEOUT_MS;
+
+  beforeEach(() => {
+    // Reset the generateText impl between tests in this block.
+    mockGenerateTextImpl = () => Promise.resolve({ text: 'ok' });
+  });
+
+  test('aborts a stalled generateText call within the configured budget', async () => {
+    process.env.AGENT_PIPELINE_TIMEOUT_MS = '100';
+
+    // generateText that hangs until the abort signal fires, mirroring how
+    // the Vercel AI SDK behaves with abortSignal: it rejects with
+    // AbortError when the controller aborts.
+    mockGenerateTextImpl = (opts) =>
+      new Promise((_, reject) => {
+        opts.abortSignal?.addEventListener('abort', () => {
+          const err = new Error('aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+
+    const ctx = makeBaseCtx({
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+
+    const start = Date.now();
+    await expect(generateStage(ctx)).rejects.toThrow(/timeout/i);
+    const elapsed = Date.now() - start;
+
+    // Generous upper bound: budget is 100ms, abort + reject is bounded
+    // by the abort listener; the test should finish well under 1s.
+    expect(elapsed).toBeLessThan(1000);
+
+    if (ORIGINAL_TIMEOUT === undefined) {
+      delete process.env.AGENT_PIPELINE_TIMEOUT_MS;
+    } else {
+      process.env.AGENT_PIPELINE_TIMEOUT_MS = ORIGINAL_TIMEOUT;
+    }
+  });
+
+  test('short-circuits detection block without calling generateText', async () => {
+    let called = false;
+    mockGenerateTextImpl = () => {
+      called = true;
+      return Promise.resolve({ text: 'should not fire' });
+    };
+
+    const ctx = makeBaseCtx({ detectionBlockResponse: '⚠️ blocked' });
+    const result = await generateStage(ctx);
+
+    expect(called).toBe(false);
+    expect(result.response).toBe('⚠️ blocked');
+    expect(result.providerName).toBe('none');
   });
 });
 
