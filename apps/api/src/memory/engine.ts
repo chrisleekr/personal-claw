@@ -246,7 +246,17 @@ export class MemoryEngine {
     });
 
     if (shouldCompact(tokenCount)) {
-      await this.triggerCompaction(channelId, threadId, updatedHistory);
+      // Fire-and-forget: compaction runs an LLM call that can take 5–30s and
+      // can fail independently of the request that just succeeded. Awaiting
+      // here would couple request latency and request success to background
+      // summarization work.
+      void this.triggerCompaction(channelId, threadId, updatedHistory).catch((err) => {
+        logger.error('Compaction failed', {
+          channelId,
+          threadId,
+          ...errorDetails(err),
+        });
+      });
     }
   }
 

@@ -150,5 +150,75 @@ describe('MemoryEngine', () => {
       await engine.persistConversation(CHANNEL_ID, THREAD_ID, userMsg, assistantMsg);
       expect(mockInsertCalled).toBe(true);
     });
+
+    test('does not block on triggerCompaction when conversation crosses threshold', async () => {
+      mockSelectRows = [];
+
+      // Build messages large enough to cross COMPACTION_TOKEN_THRESHOLD.
+      // estimateTokenCount = ceil(len/4); >= 80000 tokens needs >= 320000 chars
+      // across the joined messages.
+      const userMsg: ConversationMessage = {
+        role: 'user',
+        content: 'a'.repeat(160_001),
+        timestamp: '2026-01-01T00:00:00Z',
+      };
+      const assistantMsg: ConversationMessage = {
+        role: 'assistant',
+        content: 'b'.repeat(160_001),
+        timestamp: '2026-01-01T00:00:01Z',
+      };
+
+      // Replace triggerCompaction with a never-resolving stub. If the
+      // production code awaits it, persistConversation will hang and the
+      // test will time out. Fire-and-forget means we return promptly.
+      let triggerCalled = false;
+      let releaseTrigger: () => void = () => {};
+      const triggerPromise = new Promise<void>((resolve) => {
+        releaseTrigger = resolve;
+      });
+      (engine as unknown as { triggerCompaction: () => Promise<void> }).triggerCompaction =
+        async () => {
+          triggerCalled = true;
+          await triggerPromise;
+        };
+
+      const start = Date.now();
+      await engine.persistConversation(CHANNEL_ID, THREAD_ID, userMsg, assistantMsg);
+      const elapsed = Date.now() - start;
+
+      expect(elapsed).toBeLessThan(500);
+      expect(triggerCalled).toBe(true);
+
+      // Release the hanging promise so we don't leak.
+      releaseTrigger();
+    });
+
+    test('does not propagate triggerCompaction errors', async () => {
+      mockSelectRows = [];
+
+      const userMsg: ConversationMessage = {
+        role: 'user',
+        content: 'a'.repeat(160_001),
+        timestamp: '2026-01-01T00:00:00Z',
+      };
+      const assistantMsg: ConversationMessage = {
+        role: 'assistant',
+        content: 'b'.repeat(160_001),
+        timestamp: '2026-01-01T00:00:01Z',
+      };
+
+      (engine as unknown as { triggerCompaction: () => Promise<void> }).triggerCompaction =
+        async () => {
+          throw new Error('compaction failed');
+        };
+
+      await expect(
+        engine.persistConversation(CHANNEL_ID, THREAD_ID, userMsg, assistantMsg),
+      ).resolves.toBeUndefined();
+
+      // Allow the .catch handler to run so the unhandled rejection (if any)
+      // would have surfaced before the test ends.
+      await Bun.sleep(10);
+    });
   });
 });
