@@ -60,9 +60,15 @@ mock.module('../../memory/engine', () => ({
   },
 }));
 
+let sandboxInitShouldFail = false;
+
 mock.module('../../sandbox/manager', () => ({
   SandboxManager: class {
-    async initialize() {}
+    async initialize() {
+      if (sandboxInitShouldFail) {
+        throw new Error('Sandbox init failed');
+      }
+    }
     async destroy() {}
     async destroyAll() {}
     shutdown() {}
@@ -220,5 +226,23 @@ describe('AgentEngine', () => {
 describe('shutdownEngine', () => {
   test('does not throw when no engine initialized', async () => {
     await expect(shutdownEngine()).resolves.toBeUndefined();
+  });
+});
+
+describe('AgentEngine init failure recovery', () => {
+  beforeEach(async () => {
+    // Reset module-level deps cache so getDefaultDeps() rebuilds.
+    await shutdownEngine();
+    sandboxInitShouldFail = false;
+  });
+
+  test('clears cached promise on rejection so a subsequent create retries', async () => {
+    sandboxInitShouldFail = true;
+    await expect(AgentEngine.create()).rejects.toThrow('Sandbox init failed');
+
+    // Second call must retry — the rejected promise must not be re-served.
+    sandboxInitShouldFail = false;
+    const engine = await AgentEngine.create();
+    expect(engine).toBeInstanceOf(AgentEngine);
   });
 });
