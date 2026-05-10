@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { ConversationMessage } from '@personalclaw/shared';
 
 const mockDbInsert = mock(() => ({
@@ -440,6 +440,18 @@ describe('generateStage wall-clock timeout', () => {
     mockGenerateTextImpl = () => Promise.resolve({ text: 'ok' });
   });
 
+  afterEach(() => {
+    // Always restore the env var, even when an assertion above throws —
+    // otherwise a mutated AGENT_PIPELINE_TIMEOUT_MS would leak into
+    // unrelated tests in this file (or other files via Bun's shared
+    // process.env) and produce hard-to-debug failures.
+    if (ORIGINAL_TIMEOUT === undefined) {
+      delete process.env.AGENT_PIPELINE_TIMEOUT_MS;
+    } else {
+      process.env.AGENT_PIPELINE_TIMEOUT_MS = ORIGINAL_TIMEOUT;
+    }
+  });
+
   test('aborts a stalled generateText call within the configured budget', async () => {
     process.env.AGENT_PIPELINE_TIMEOUT_MS = '100';
 
@@ -467,12 +479,6 @@ describe('generateStage wall-clock timeout', () => {
     // Generous upper bound: budget is 100ms, abort + reject is bounded
     // by the abort listener; the test should finish well under 1s.
     expect(elapsed).toBeLessThan(1000);
-
-    if (ORIGINAL_TIMEOUT === undefined) {
-      delete process.env.AGENT_PIPELINE_TIMEOUT_MS;
-    } else {
-      process.env.AGENT_PIPELINE_TIMEOUT_MS = ORIGINAL_TIMEOUT;
-    }
   });
 
   test('short-circuits detection block without calling generateText', async () => {
