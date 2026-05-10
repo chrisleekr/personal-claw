@@ -193,6 +193,45 @@ describe('MemoryEngine', () => {
       releaseTrigger();
     });
 
+    test('does not stack a second compaction while one is already in flight for the same thread', async () => {
+      mockSelectRows = [];
+
+      const userMsg: ConversationMessage = {
+        role: 'user',
+        content: 'a'.repeat(160_001),
+        timestamp: '2026-01-01T00:00:00Z',
+      };
+      const assistantMsg: ConversationMessage = {
+        role: 'assistant',
+        content: 'b'.repeat(160_001),
+        timestamp: '2026-01-01T00:00:01Z',
+      };
+
+      let triggerCalls = 0;
+      let releaseTrigger: () => void = () => {};
+      const triggerPromise = new Promise<void>((resolve) => {
+        releaseTrigger = resolve;
+      });
+      (engine as unknown as { triggerCompaction: () => Promise<void> }).triggerCompaction =
+        async () => {
+          triggerCalls += 1;
+          await triggerPromise;
+        };
+
+      // Two persistConversation calls for the same (channel, thread). The
+      // first launches a fire-and-forget compaction; the second must observe
+      // the in-flight entry and skip launching its own.
+      await engine.persistConversation(CHANNEL_ID, THREAD_ID, userMsg, assistantMsg);
+      await engine.persistConversation(CHANNEL_ID, THREAD_ID, userMsg, assistantMsg);
+
+      expect(triggerCalls).toBe(1);
+
+      releaseTrigger();
+      // Yield so the .finally on the in-flight promise drains the map before
+      // the test exits.
+      await Bun.sleep(10);
+    });
+
     test('does not propagate triggerCompaction errors', async () => {
       mockSelectRows = [];
 

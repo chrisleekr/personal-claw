@@ -88,10 +88,41 @@ export class ConversationMemory {
     });
   }
 
-  async compact(channelId: string, threadId: string, summary: string): Promise<void> {
+  /**
+   * Compacts a conversation by replacing its message history with a summary.
+   *
+   * `expectedMessageCount`, when supplied, makes the compaction conditional:
+   * the UPDATE only fires if `jsonb_array_length(messages)` still equals the
+   * count from the snapshot the summary was built from. When messages have
+   * been appended after the snapshot (concurrent persistConversation while
+   * the summarising LLM call was in flight) the row is left untouched and
+   * the function returns `false`. The next persistConversation that crosses
+   * the compaction threshold will re-trigger.
+   *
+   * Returns `true` when the row was compacted, `false` when the conditional
+   * length check rejected the write.
+   */
+  async compact(
+    channelId: string,
+    threadId: string,
+    summary: string,
+    expectedMessageCount?: number,
+  ): Promise<boolean> {
     const db = getDb();
 
-    await db
+    const baseWhere = and(
+      eq(conversations.channelId, channelId),
+      eq(conversations.externalThreadId, threadId),
+    );
+    const where =
+      expectedMessageCount === undefined
+        ? baseWhere
+        : and(
+            baseWhere,
+            sql`jsonb_array_length(${conversations.messages}) = ${expectedMessageCount}`,
+          );
+
+    const updated = await db
       .update(conversations)
       .set({
         summary,
@@ -100,8 +131,9 @@ export class ConversationMemory {
         tokenCount: estimateTokenCount(summary),
         updatedAt: new Date(),
       })
-      .where(
-        and(eq(conversations.channelId, channelId), eq(conversations.externalThreadId, threadId)),
-      );
+      .where(where)
+      .returning({ id: conversations.id });
+
+    return updated.length > 0;
   }
 }
