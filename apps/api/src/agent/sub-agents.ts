@@ -62,7 +62,7 @@ const fallbackResults = new Map<string, SubtaskResult>();
 export async function spawnSubtask(params: SubtaskParams): Promise<string> {
   const taskId = nanoid();
   const start = Date.now();
-  const timeoutMs = params.timeoutMs || 30000;
+  const timeoutMs = params.timeoutMs ?? 30000;
 
   // Use AbortController so the timeout actually cancels the underlying
   // generateText call (it accepts abortSignal). Promise.race only races
@@ -79,9 +79,9 @@ export async function spawnSubtask(params: SubtaskParams): Promise<string> {
     try {
       const { provider, model } = await getProvider(params.channelId);
       const result = await generateText({
-        model: provider(params.model || model),
+        model: provider(params.model ?? model),
         prompt: params.instruction,
-        tools: params.tools || {},
+        tools: params.tools ?? {},
         stopWhen: stepCountIs(5),
         abortSignal: controller.signal,
       });
