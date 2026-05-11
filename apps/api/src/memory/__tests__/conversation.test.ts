@@ -14,6 +14,10 @@ let mockReturningRow: { messages: ConversationMessage[]; xmax?: string } = {
   messages: [],
   xmax: '0',
 };
+// Rows returned by the UPDATE … RETURNING chain in `compact()`. Length 1
+// means the conditional WHERE matched (success); length 0 means it filtered
+// the row out (concurrent append).
+let mockUpdateReturningRows: unknown[] = [];
 
 function chainable(getRows: () => unknown[]): unknown {
   const methods: Record<string, unknown> = {};
@@ -73,7 +77,7 @@ mock.module('../../db', () => ({
     update: () => ({
       set: () => {
         mockUpdateCalled = true;
-        return chainable(() => []);
+        return chainable(() => mockUpdateReturningRows);
       },
     }),
     transaction: async <T>(cb: (tx: unknown) => Promise<T>): Promise<T> => {
@@ -97,6 +101,7 @@ describe('ConversationMemory', () => {
     mockTransactionCalled = false;
     mockSelectCalled = false;
     mockReturningRow = { messages: [], xmax: '0' };
+    mockUpdateReturningRows = [];
   });
 
   afterEach(() => {
@@ -107,6 +112,7 @@ describe('ConversationMemory', () => {
     mockTransactionCalled = false;
     mockSelectCalled = false;
     mockReturningRow = { messages: [], xmax: '0' };
+    mockUpdateReturningRows = [];
   });
 
   describe('getHistory', () => {
@@ -238,6 +244,30 @@ describe('ConversationMemory', () => {
       mockSelectRows = [];
       await memory.compact(CHANNEL_ID, THREAD_ID, 'Summary of conversation.');
       expect(mockUpdateCalled).toBe(true);
+    });
+
+    test('returns true when conditional UPDATE matches (4-arg path)', async () => {
+      mockUpdateReturningRows = [{ id: 'conv-1' }];
+      const result = await memory.compact(CHANNEL_ID, THREAD_ID, 'Summary.', 5);
+      expect(mockUpdateCalled).toBe(true);
+      expect(result).toBe(true);
+    });
+
+    test('returns false when conditional UPDATE filters the row out (concurrent append)', async () => {
+      // RETURNING comes back empty: the row's message count no longer matches
+      // the expected snapshot, so the conditional UPDATE no-op'd. compact()
+      // must signal this so the caller leaves working-memory intact.
+      mockUpdateReturningRows = [];
+      const result = await memory.compact(CHANNEL_ID, THREAD_ID, 'Summary.', 5);
+      expect(mockUpdateCalled).toBe(true);
+      expect(result).toBe(false);
+    });
+
+    test('returns true when called without expectedMessageCount and UPDATE runs (3-arg back-compat)', async () => {
+      mockUpdateReturningRows = [{ id: 'conv-1' }];
+      const result = await memory.compact(CHANNEL_ID, THREAD_ID, 'Summary.');
+      expect(mockUpdateCalled).toBe(true);
+      expect(result).toBe(true);
     });
   });
 });

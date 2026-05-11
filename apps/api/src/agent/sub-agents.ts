@@ -62,16 +62,48 @@ const fallbackResults = new Map<string, SubtaskResult>();
 export async function spawnSubtask(params: SubtaskParams): Promise<string> {
   const taskId = nanoid();
   const start = Date.now();
+  const timeoutMs = params.timeoutMs ?? 30000;
+
+  // Use AbortController so the timeout actually cancels the underlying
+  // generateText call (it accepts abortSignal). Promise.race only races
+  // resolution — the LLM call would continue in the background and burn
+  // quota. The controller is the single source of truth for "timed out".
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
 
   const run = async () => {
     try {
       const { provider, model } = await getProvider(params.channelId);
       const result = await generateText({
-        model: provider(params.model || model),
+        model: provider(params.model ?? model),
         prompt: params.instruction,
-        tools: params.tools || {},
+        tools: params.tools ?? {},
         stopWhen: stepCountIs(5),
+        abortSignal: controller.signal,
       });
+
+      // Stop the timer the moment generateText settles so the abort callback
+      // can't fire during the subsequent storeResult await and flip the
+      // recorded status to 'timeout' after we've already chosen 'completed'.
+      clearTimeout(timer);
+
+      // Re-check after clearTimeout in case the timer fired between
+      // generateText resolving and us reaching this line. The abort verdict
+      // is authoritative — if it fired within the budget, the caller has
+      // already given up.
+      if (timedOut || controller.signal.aborted) {
+        await storeResult(taskId, {
+          taskId,
+          text: 'Subtask timed out',
+          status: 'timeout',
+          durationMs: Date.now() - start,
+        });
+        return;
+      }
 
       await storeResult(taskId, {
         taskId,
@@ -80,27 +112,26 @@ export async function spawnSubtask(params: SubtaskParams): Promise<string> {
         durationMs: Date.now() - start,
       });
     } catch (error) {
+      clearTimeout(timer);
+      // generateText surfaces aborts as either AbortError or a thrown
+      // controller.signal.reason. Map both to a timeout outcome rather than
+      // a generic failure.
+      const isAbort =
+        timedOut ||
+        controller.signal.aborted ||
+        (error as Error).name === 'AbortError' ||
+        (error as Error).message?.toLowerCase().includes('abort');
+
       await storeResult(taskId, {
         taskId,
-        text: (error as Error).message,
-        status: 'failed',
+        text: isAbort ? 'Subtask timed out' : (error as Error).message,
+        status: isAbort ? 'timeout' : 'failed',
         durationMs: Date.now() - start,
       });
     }
   };
 
-  const timeoutMs = params.timeoutMs || 30000;
-  Promise.race([
-    run(),
-    new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs)),
-  ]).catch(async () => {
-    await storeResult(taskId, {
-      taskId,
-      text: 'Subtask timed out',
-      status: 'timeout',
-      durationMs: Date.now() - start,
-    });
-  });
+  void run();
 
   return taskId;
 }

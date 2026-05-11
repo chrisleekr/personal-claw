@@ -112,6 +112,110 @@ describe('spawnSubtask', () => {
     expect(result?.text).toBe('API error');
   });
 
+  test('passes abort signal to generateText', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    mockGenerateText.mockImplementationOnce((opts: { abortSignal?: AbortSignal }) => {
+      capturedSignal = opts.abortSignal;
+      return Promise.resolve({ text: 'ok' });
+    });
+
+    await spawnSubtask({ channelId: 'ch-001', instruction: 'inspect signal' });
+    await Bun.sleep(50);
+
+    expect(capturedSignal).toBeDefined();
+    // AbortSignal in Bun is an EventTarget; .aborted is the canonical flag.
+    expect(typeof capturedSignal?.aborted).toBe('boolean');
+  });
+
+  test('records timeout status when abort fires before generateText completes', async () => {
+    // Mock generateText to hang until the abort signal fires, mirroring how
+    // a real LLM client behaves with abortSignal: it rejects with AbortError
+    // when the controller aborts.
+    mockGenerateText.mockImplementationOnce((opts: { abortSignal?: AbortSignal }) => {
+      return new Promise((_, reject) => {
+        opts.abortSignal?.addEventListener('abort', () => {
+          const err = new Error('aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+    });
+
+    const taskId = await spawnSubtask({
+      channelId: 'ch-001',
+      instruction: 'will time out',
+      timeoutMs: 50,
+    });
+
+    await Bun.sleep(200);
+
+    const result = await getSubtaskResult(taskId);
+    expect(result).not.toBeNull();
+    expect(result?.status).toBe('timeout');
+    expect(result?.text).toBe('Subtask timed out');
+  });
+
+  test('clears timer immediately after generateText settles so a slow persist cannot flip status', async () => {
+    // Mock storeResult-side latency: redis.set hangs for 80ms, longer than
+    // the 30ms timeout budget. Under the fix the timer is cleared the
+    // instant generateText resolves, so the timer cannot fire during the
+    // persist and `controller.signal.aborted` stays false.
+    mockRedisAvailable = true;
+    let abortedDuringPersist = false;
+    let capturedSignal: AbortSignal | undefined;
+    mockGenerateText.mockImplementationOnce((opts: { abortSignal?: AbortSignal }) => {
+      capturedSignal = opts.abortSignal;
+      return Promise.resolve({ text: 'Subtask completed' });
+    });
+    mockRedisSet.mockImplementationOnce(async () => {
+      await Bun.sleep(80);
+      // Sample the controller state at the end of the slow persist. Under
+      // the unfixed code the 30ms timer fires here and flips this to true.
+      if (capturedSignal?.aborted) abortedDuringPersist = true;
+      return 'OK';
+    });
+
+    await spawnSubtask({
+      channelId: 'ch-001',
+      instruction: 'fast generate, slow persist',
+      timeoutMs: 30,
+    });
+
+    // Wait past both the 30ms timeout and the 80ms storeResult.
+    await Bun.sleep(150);
+
+    expect(abortedDuringPersist).toBe(false);
+  });
+
+  test('does not overwrite timeout outcome with a later completion', async () => {
+    // Race: abort fires, but a stale completion arrives after. Production
+    // honors the timeout verdict via the timedOut flag — assert no
+    // completed/failed status is recorded when the abort already fired.
+    let resolveLate: (value: { text: string }) => void = () => {};
+    mockGenerateText.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveLate = resolve;
+        }),
+    );
+
+    const taskId = await spawnSubtask({
+      channelId: 'ch-001',
+      instruction: 'late completion',
+      timeoutMs: 30,
+    });
+
+    // Wait for the abort to fire.
+    await Bun.sleep(80);
+    // Now trigger a late "successful" completion.
+    resolveLate({ text: 'late result' });
+    await Bun.sleep(30);
+
+    const result = await getSubtaskResult(taskId);
+    expect(result?.status).toBe('timeout');
+    expect(result?.text).not.toBe('late result');
+  });
+
   test('uses redis when available', async () => {
     mockRedisAvailable = true;
     mockRedisGet.mockResolvedValue(

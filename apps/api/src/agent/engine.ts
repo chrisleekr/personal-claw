@@ -92,10 +92,18 @@ let defaultDepsPromise: Promise<AgentDeps> | null = null;
 async function getDefaultDeps(): Promise<AgentDeps> {
   if (defaultDeps) return defaultDeps;
   if (!defaultDepsPromise) {
-    defaultDepsPromise = createDefaultDeps().then((deps) => {
-      defaultDeps = deps;
-      return deps;
-    });
+    // Clear the cached promise on rejection so a transient init failure
+    // (e.g. SandboxManager.initialize throwing) does not poison the cache —
+    // the next caller retries instead of getting the same rejected promise.
+    defaultDepsPromise = createDefaultDeps()
+      .then((deps) => {
+        defaultDeps = deps;
+        return deps;
+      })
+      .catch((err) => {
+        defaultDepsPromise = null;
+        throw err;
+      });
   }
   return defaultDepsPromise;
 }

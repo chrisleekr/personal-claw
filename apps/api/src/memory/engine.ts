@@ -18,6 +18,21 @@ import { WorkingMemory } from './working';
 
 const logger = getLogger(['personalclaw', 'memory', 'engine']);
 
+// Wall-clock budget for triggerCompaction's summarisation LLM call. Without
+// this, a provider stall would leave the fire-and-forget promise pending
+// forever, which keeps its entry in `compactionsInFlight` forever, which
+// silently disables compaction for the thread (every subsequent
+// persistConversation short-circuits at the in-flight guard). Two minutes
+// is generous enough to cover a multi-step compaction tool run but guarantees
+// the map entry is released. Override via MEMORY_COMPACTION_TIMEOUT_MS.
+const DEFAULT_COMPACTION_TIMEOUT_MS = 2 * 60 * 1000;
+function getCompactionTimeoutMs(): number {
+  const raw = process.env.MEMORY_COMPACTION_TIMEOUT_MS;
+  if (!raw) return DEFAULT_COMPACTION_TIMEOUT_MS;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_COMPACTION_TIMEOUT_MS;
+}
+
 export interface AssembledContext {
   messages: ConversationMessage[];
   memories: ChannelMemory[];
@@ -28,6 +43,16 @@ export class MemoryEngine {
   private conversation = new ConversationMemory();
   private longterm = new LongTermMemory();
   private configCache = new Map<string, { config: MemoryConfig; loadedAt: number }>();
+  /**
+   * Per-thread in-flight compaction promises. Keyed by `${channelId}:${threadId}`.
+   * Used by `persistConversation` to prevent multiple background compactions
+   * from racing for the same thread — the second trigger is a no-op while
+   * the first is still running. Without this guard, a slow LLM summarisation
+   * stacked behind a fast user follow-up could produce two parallel
+   * `compact()` calls, the later one wiping messages appended after the
+   * earlier snapshot was captured.
+   */
+  private compactionsInFlight = new Map<string, Promise<void>>();
   private static CACHE_TTL_MS = 60_000;
   /**
    * Optional detection engine for FR-025 recall-time memory detection.
@@ -246,7 +271,32 @@ export class MemoryEngine {
     });
 
     if (shouldCompact(tokenCount)) {
-      await this.triggerCompaction(channelId, threadId, updatedHistory);
+      // Fire-and-forget: compaction runs an LLM call that can take 5–30s and
+      // can fail independently of the request that just succeeded. Awaiting
+      // here would couple request latency and request success to background
+      // summarization work.
+      const key = `${channelId}:${threadId}`;
+      if (this.compactionsInFlight.has(key)) {
+        // A compaction is already running for this thread; if the running
+        // one finishes cleanly the conversation is summarised. If newer
+        // messages snuck in past its snapshot, its conditional UPDATE will
+        // no-op and the next persistConversation will re-trigger. Either
+        // way, stacking a second LLM call here would only burn quota.
+        return;
+      }
+
+      const promise = this.triggerCompaction(channelId, threadId, updatedHistory)
+        .catch((err) => {
+          logger.error('Compaction failed', {
+            channelId,
+            threadId,
+            ...errorDetails(err),
+          });
+        })
+        .finally(() => {
+          this.compactionsInFlight.delete(key);
+        });
+      this.compactionsInFlight.set(key, promise);
     }
   }
 
@@ -258,7 +308,14 @@ export class MemoryEngine {
     const history = messages ?? (await this.conversation.getHistory(channelId, threadId));
     if (history.length === 0) return;
 
-    const { generateText } = await import('ai');
+    // Capture the snapshot length BEFORE the LLM call so the conditional
+    // UPDATE in compact() can detect concurrent appends and abort. Without
+    // this guard, a follow-up message persisted while the LLM is summarising
+    // would be wiped by the unconditional `messages = '[]'::jsonb` UPDATE,
+    // since that follow-up was not represented in the summary.
+    const expectedMessageCount = history.length;
+
+    const { generateText, stepCountIs } = await import('ai');
     const { getProvider } = await import('../agent/provider');
     const { getMemoryTools } = await import('./tools');
 
@@ -266,15 +323,65 @@ export class MemoryEngine {
     const memoryTools = getMemoryTools(channelId);
     const compactionPrompt = buildCompactionPrompt(history);
 
-    const result = await generateText({
-      model: provider(model),
-      prompt: compactionPrompt,
-      tools: memoryTools,
-      stopWhen: (await import('ai')).stepCountIs(5),
-    });
+    // Wall-clock guard so a hung summarisation LLM cannot pin this promise
+    // indefinitely. Without it, the entry in `compactionsInFlight` would
+    // never be cleared and compaction would be silently disabled for the
+    // thread for the lifetime of the process.
+    const controller = new AbortController();
+    const compactionTimeoutMs = getCompactionTimeoutMs();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, compactionTimeoutMs);
 
-    const summary = result.text || 'Conversation compacted.';
-    await this.conversation.compact(channelId, threadId, summary);
+    let summary: string;
+    try {
+      const result = await generateText({
+        model: provider(model),
+        prompt: compactionPrompt,
+        tools: memoryTools,
+        stopWhen: stepCountIs(5),
+        abortSignal: controller.signal,
+      });
+      summary = result.text || 'Conversation compacted.';
+    } catch (error) {
+      const isAbort =
+        timedOut ||
+        controller.signal.aborted ||
+        (error as Error).name === 'AbortError' ||
+        (error as Error).message?.toLowerCase().includes('abort');
+      if (isAbort) {
+        logger.warn('Compaction aborted by wall-clock timeout', {
+          channelId,
+          threadId,
+          timeoutMs: compactionTimeoutMs,
+        });
+        // Return cleanly so .finally in persistConversation deletes the
+        // in-flight entry; the next persistConversation will re-trigger.
+        return;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const compacted = await this.conversation.compact(
+      channelId,
+      threadId,
+      summary,
+      expectedMessageCount,
+    );
+
+    if (!compacted) {
+      // Newer messages were appended while the LLM was summarising; the
+      // conditional UPDATE rejected the write to avoid clobbering them.
+      // Leave working memory intact (it still mirrors the persisted state)
+      // so the next turn does not pay an unnecessary getHistory round-trip.
+      logger.info`Compaction skipped — messages changed since snapshot for channel=${channelId} thread=${threadId}`;
+      return;
+    }
+
     await this.working.delete(channelId, threadId);
 
     logger.info`Compaction complete for channel=${channelId} thread=${threadId}`;
