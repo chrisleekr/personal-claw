@@ -476,8 +476,9 @@ export const generateStage: PipelineStage = async (ctx) => {
             provider: p.providerName,
             model: p.model,
             fallbackIndex: i,
+            ...errorDetails(error),
           });
-          throw new Error(`Pipeline timeout after ${pipelineTimeoutMs}ms`);
+          throw new Error(`Pipeline timeout after ${pipelineTimeoutMs}ms`, { cause: error });
         }
         if (shouldTryNextFallback(error) && i < providerEntries.length - 1) {
           logger.warn('Provider failed, trying next fallback', {
