@@ -68,6 +68,27 @@ mock.module('../embeddings', () => ({
   generateEmbedding: async () => Array.from({ length: 1024 }, () => 0.1),
 }));
 
+// Configurable generateText mock for the triggerCompaction wall-clock test.
+// Default resolves immediately so unrelated tests are unaffected.
+let mockGenerateTextImpl: (opts: { abortSignal?: AbortSignal }) => Promise<{ text: string }> = () =>
+  Promise.resolve({ text: 'summary' });
+
+mock.module('ai', () => ({
+  generateText: (opts: { abortSignal?: AbortSignal }) => mockGenerateTextImpl(opts),
+  stepCountIs: () => ({}),
+}));
+
+mock.module('../../agent/provider', () => ({
+  getProvider: async () => ({
+    provider: () => ({}),
+    model: 'test-model',
+  }),
+}));
+
+mock.module('../tools', () => ({
+  getMemoryTools: () => ({}),
+}));
+
 import { MemoryEngine } from '../engine';
 
 describe('MemoryEngine', () => {
@@ -230,6 +251,108 @@ describe('MemoryEngine', () => {
       // Yield so the .finally on the in-flight promise drains the map before
       // the test exits.
       await Bun.sleep(10);
+    });
+
+    describe('triggerCompaction wall-clock timeout', () => {
+      const ORIGINAL_TIMEOUT = process.env.MEMORY_COMPACTION_TIMEOUT_MS;
+
+      beforeEach(() => {
+        mockGenerateTextImpl = () => Promise.resolve({ text: 'summary' });
+      });
+
+      afterEach(() => {
+        // Always restore the env var, even if assertions above throw, so a
+        // mutated MEMORY_COMPACTION_TIMEOUT_MS does not leak into other tests
+        // via Bun's shared process.env.
+        if (ORIGINAL_TIMEOUT === undefined) {
+          delete process.env.MEMORY_COMPACTION_TIMEOUT_MS;
+        } else {
+          process.env.MEMORY_COMPACTION_TIMEOUT_MS = ORIGINAL_TIMEOUT;
+        }
+        mockGenerateTextImpl = () => Promise.resolve({ text: 'summary' });
+      });
+
+      test('aborts a stalled summarisation LLM call within the configured budget', async () => {
+        process.env.MEMORY_COMPACTION_TIMEOUT_MS = '100';
+
+        // Mimic an SDK that respects abortSignal: hang until the controller
+        // aborts, then reject with AbortError. Without the wall-clock fix,
+        // this promise would never settle and pin compactionsInFlight forever.
+        mockGenerateTextImpl = (opts) =>
+          new Promise((_, reject) => {
+            opts.abortSignal?.addEventListener('abort', () => {
+              const err = new Error('aborted');
+              err.name = 'AbortError';
+              reject(err);
+            });
+          });
+
+        const history = [
+          {
+            role: 'user' as const,
+            content: 'hi',
+            timestamp: '2026-01-01T00:00:00Z',
+          },
+        ];
+
+        const start = Date.now();
+        // Should resolve cleanly (not throw) within the budget — the abort
+        // branch returns void so the .finally in persistConversation can
+        // release the in-flight slot.
+        await expect(
+          engine.triggerCompaction(CHANNEL_ID, THREAD_ID, history),
+        ).resolves.toBeUndefined();
+        const elapsed = Date.now() - start;
+
+        expect(elapsed).toBeLessThan(1000);
+      });
+
+      test('releases the in-flight slot after a wall-clock abort so the next persistConversation can re-trigger', async () => {
+        process.env.MEMORY_COMPACTION_TIMEOUT_MS = '100';
+
+        mockGenerateTextImpl = (opts) =>
+          new Promise((_, reject) => {
+            opts.abortSignal?.addEventListener('abort', () => {
+              const err = new Error('aborted');
+              err.name = 'AbortError';
+              reject(err);
+            });
+          });
+
+        const userMsg: ConversationMessage = {
+          role: 'user',
+          content: 'a'.repeat(160_001),
+          timestamp: '2026-01-01T00:00:00Z',
+        };
+        const assistantMsg: ConversationMessage = {
+          role: 'assistant',
+          content: 'b'.repeat(160_001),
+          timestamp: '2026-01-01T00:00:01Z',
+        };
+
+        // First persistConversation kicks off the real triggerCompaction; the
+        // abort fires at ~100ms.
+        await engine.persistConversation(CHANNEL_ID, THREAD_ID, userMsg, assistantMsg);
+
+        // Wait for the fire-and-forget chain (.catch().finally()) to drain
+        // the compactionsInFlight entry.
+        await Bun.sleep(250);
+
+        // Patch triggerCompaction now so the SECOND call uses a sentinel we
+        // can count. If the in-flight slot were leaked, the guard would
+        // short-circuit and `secondCalls` would stay 0.
+        let secondCalls = 0;
+        (engine as unknown as { triggerCompaction: () => Promise<void> }).triggerCompaction =
+          async () => {
+            secondCalls += 1;
+          };
+
+        await engine.persistConversation(CHANNEL_ID, THREAD_ID, userMsg, assistantMsg);
+        // Allow .finally on the second call to run.
+        await Bun.sleep(20);
+
+        expect(secondCalls).toBe(1);
+      });
     });
 
     test('does not propagate triggerCompaction errors', async () => {

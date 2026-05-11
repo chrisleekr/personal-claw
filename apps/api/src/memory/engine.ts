@@ -18,6 +18,21 @@ import { WorkingMemory } from './working';
 
 const logger = getLogger(['personalclaw', 'memory', 'engine']);
 
+// Wall-clock budget for triggerCompaction's summarisation LLM call. Without
+// this, a provider stall would leave the fire-and-forget promise pending
+// forever, which keeps its entry in `compactionsInFlight` forever, which
+// silently disables compaction for the thread (every subsequent
+// persistConversation short-circuits at the in-flight guard). Two minutes
+// is generous enough to cover a multi-step compaction tool run but guarantees
+// the map entry is released. Override via MEMORY_COMPACTION_TIMEOUT_MS.
+const DEFAULT_COMPACTION_TIMEOUT_MS = 2 * 60 * 1000;
+function getCompactionTimeoutMs(): number {
+  const raw = process.env.MEMORY_COMPACTION_TIMEOUT_MS;
+  if (!raw) return DEFAULT_COMPACTION_TIMEOUT_MS;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_COMPACTION_TIMEOUT_MS;
+}
+
 export interface AssembledContext {
   messages: ConversationMessage[];
   memories: ChannelMemory[];
@@ -300,7 +315,7 @@ export class MemoryEngine {
     // since that follow-up was not represented in the summary.
     const expectedMessageCount = history.length;
 
-    const { generateText } = await import('ai');
+    const { generateText, stepCountIs } = await import('ai');
     const { getProvider } = await import('../agent/provider');
     const { getMemoryTools } = await import('./tools');
 
@@ -308,14 +323,49 @@ export class MemoryEngine {
     const memoryTools = getMemoryTools(channelId);
     const compactionPrompt = buildCompactionPrompt(history);
 
-    const result = await generateText({
-      model: provider(model),
-      prompt: compactionPrompt,
-      tools: memoryTools,
-      stopWhen: (await import('ai')).stepCountIs(5),
-    });
+    // Wall-clock guard so a hung summarisation LLM cannot pin this promise
+    // indefinitely. Without it, the entry in `compactionsInFlight` would
+    // never be cleared and compaction would be silently disabled for the
+    // thread for the lifetime of the process.
+    const controller = new AbortController();
+    const compactionTimeoutMs = getCompactionTimeoutMs();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, compactionTimeoutMs);
 
-    const summary = result.text || 'Conversation compacted.';
+    let summary: string;
+    try {
+      const result = await generateText({
+        model: provider(model),
+        prompt: compactionPrompt,
+        tools: memoryTools,
+        stopWhen: stepCountIs(5),
+        abortSignal: controller.signal,
+      });
+      summary = result.text || 'Conversation compacted.';
+    } catch (error) {
+      const isAbort =
+        timedOut ||
+        controller.signal.aborted ||
+        (error as Error).name === 'AbortError' ||
+        (error as Error).message?.toLowerCase().includes('abort');
+      if (isAbort) {
+        logger.warn('Compaction aborted by wall-clock timeout', {
+          channelId,
+          threadId,
+          timeoutMs: compactionTimeoutMs,
+        });
+        // Return cleanly so .finally in persistConversation deletes the
+        // in-flight entry; the next persistConversation will re-trigger.
+        return;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+
     const compacted = await this.conversation.compact(
       channelId,
       threadId,
