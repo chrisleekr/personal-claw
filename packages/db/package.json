@@ -29,8 +29,8 @@
     "@personalclaw/shared": "workspace:*"
   },
   "devDependencies": {
-    "dotenv": "^16.4.0",
+    "dotenv": "^17.0.0",
     "drizzle-kit": "^0.31.0",
-    "typescript": "^5.7.0"
+    "typescript": "^6.0.0"
   }
 }
