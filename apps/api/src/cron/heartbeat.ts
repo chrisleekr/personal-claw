@@ -1,13 +1,13 @@
 import { getLogger } from '@logtape/logtape';
 import { channels, eq } from '@personalclaw/db';
-import cron from 'node-cron';
+import cron, { type ScheduledTask } from 'node-cron';
 import { createChannelAdapter } from '../channels/adapter-factory';
 import { getDb } from '../db';
 import { errorDetails } from '../utils/error-fmt';
 
 const logger = getLogger(['personalclaw', 'cron', 'heartbeat']);
 
-const heartbeatTasks = new Map<string, cron.ScheduledTask>();
+const heartbeatTasks = new Map<string, ScheduledTask>();
 
 export async function runHeartbeat(channelId: string): Promise<void> {
   try {

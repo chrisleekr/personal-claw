@@ -18,7 +18,7 @@ export const updateMCPConfigSchema = z
     serverName: z.string().min(1).optional(),
     transportType: z.enum(['sse', 'http', 'stdio']).optional(),
     serverUrl: z.string().url().nullable().optional(),
-    headers: z.record(z.string()).nullable().optional(),
+    headers: z.record(z.string(), z.string()).nullable().optional(),
     command: stdioCommandSchema.nullable().optional(),
     args: stdioArgsSchema.nullable().optional(),
     env: stdioEnvSchema.nullable().optional(),

@@ -250,7 +250,7 @@ export const stdioArgsSchema = z
 
 /** Zod schema for stdio env: rejects dangerous env var keys. */
 export const stdioEnvSchema = z
-  .record(z.string())
+  .record(z.string(), z.string())
   .refine((env) => !Object.keys(env).some((k) => BLOCKED_ENV_KEYS.has(k.toUpperCase())), {
     message: `Blocked environment variable detected. Disallowed keys: ${[...BLOCKED_ENV_KEYS].join(', ')}`,
   });
@@ -277,7 +277,7 @@ export const createMCPConfigSchema = z
     serverName: z.string().min(1),
     transportType: mcpTransportTypeSchema.default('sse'),
     serverUrl: z.string().url().nullable().default(null),
-    headers: z.record(z.string()).nullable().default(null),
+    headers: z.record(z.string(), z.string()).nullable().default(null),
     command: stdioCommandSchema.nullable().default(null),
     args: stdioArgsSchema.nullable().default(null),
     env: stdioEnvSchema.nullable().default(null),
