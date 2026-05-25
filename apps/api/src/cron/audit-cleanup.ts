@@ -1,7 +1,7 @@
 import { getLogger } from '@logtape/logtape';
 import { and, channels, detectionAuditEvents, eq, lt, sql } from '@personalclaw/db';
 import { guardrailsConfigSchema } from '@personalclaw/shared';
-import cron from 'node-cron';
+import cron, { type ScheduledTask } from 'node-cron';
 import { getDb } from '../db';
 import { errorDetails } from '../utils/error-fmt';
 
@@ -171,7 +171,7 @@ async function runScheduledCleanup(): Promise<void> {
   }
 }
 
-let cleanupTask: cron.ScheduledTask | null = null;
+let cleanupTask: ScheduledTask | null = null;
 
 /**
  * Cron expression for the daily sweep. Runs at 03:15 UTC to stay out of

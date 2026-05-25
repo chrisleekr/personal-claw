@@ -1,6 +1,6 @@
 import { getLogger } from '@logtape/logtape';
 import { channels, eq, schedules } from '@personalclaw/db';
-import cron from 'node-cron';
+import cron, { type ScheduledTask } from 'node-cron';
 import { createChannelAdapter } from '../channels/adapter-factory';
 import { onConfigChange } from '../config/hot-reload';
 import { getDb } from '../db';
@@ -8,7 +8,7 @@ import { errorDetails } from '../utils/error-fmt';
 
 const logger = getLogger(['personalclaw', 'cron', 'runner']);
 
-const activeTasks = new Map<string, cron.ScheduledTask>();
+const activeTasks = new Map<string, ScheduledTask>();
 
 async function loadAndRegisterSchedules(): Promise<void> {
   for (const [, task] of activeTasks) {
