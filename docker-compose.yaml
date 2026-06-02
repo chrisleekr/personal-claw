@@ -19,7 +19,7 @@ services:
 
   valkey:
     container_name: valkey
-    image: valkey/valkey:8.1-alpine
+    image: valkey/valkey:9.1-alpine
     restart: unless-stopped
     ports:
       - "26379:6379"
